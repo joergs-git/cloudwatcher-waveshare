@@ -8,7 +8,6 @@ idf_component_register(
         "ui_home.c"
         "ui_dashboard.c"
         "ui_charts.c"
-        "ui_allsky.c"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -20,5 +19,4 @@ idf_component_register(
         driver
         esp_psram
         esp_lcd_touch_gt911
-        esp-tls
 )

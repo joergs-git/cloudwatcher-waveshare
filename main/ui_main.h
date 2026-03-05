@@ -9,7 +9,6 @@ typedef enum {
     UI_SCREEN_HOME = 0,
     UI_SCREEN_DASHBOARD,
     UI_SCREEN_CHARTS,
-    UI_SCREEN_ALLSKY,
     UI_SCREEN_COUNT
 } ui_screen_t;
 
@@ -27,11 +26,5 @@ void ui_update_countdown(int seconds_until_refresh);
 
 // Update WiFi connection status indicator
 void ui_update_wifi_status(bool connected);
-
-// Update clock display on home screen
-void ui_update_time(const char *time_str);
-
-// Fetch and display allsky keogram image (thread-safe)
-void ui_update_allsky(void);
 
 #endif // UI_MAIN_H

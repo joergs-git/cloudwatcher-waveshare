@@ -12,5 +12,3 @@ dependencies:
     version: "*"
   espressif/esp_hosted:
     version: "*"
-  espressif/esp_jpeg:
-    version: "*"

@@ -1,11 +1,10 @@
 // LVGL UI manager - screen management, swipe navigation, and data updates
-// v0.4.0
+// v0.3.0
 
 #include "ui_main.h"
 #include "ui_home.h"
 #include "ui_dashboard.h"
 #include "ui_charts.h"
-#include "ui_allsky.h"
 
 #include "esp_log.h"
 #include "bsp/esp-bsp.h"
@@ -14,12 +13,17 @@
 static const char *TAG = "ui_main";
 
 // Screen objects
-static lv_obj_t *screens[UI_SCREEN_COUNT] = {0};
+static lv_obj_t *scr_home = NULL;
+static lv_obj_t *scr_dashboard = NULL;
+static lv_obj_t *scr_charts = NULL;
 static ui_screen_t current_screen = UI_SCREEN_HOME;
 
-// Bottom navigation bar widgets (from home screen's nav bar)
+// Bottom navigation bar widgets (shared across screens)
 static lv_obj_t *lbl_countdown = NULL;
 static lv_obj_t *lbl_wifi_status = NULL;
+
+// Screen array for indexed access
+static lv_obj_t **screens_arr[UI_SCREEN_COUNT];
 
 // Navigate to a specific screen with appropriate animation direction
 static void navigate_to(ui_screen_t target)
@@ -31,7 +35,8 @@ static void navigate_to(ui_screen_t target)
         : LV_SCR_LOAD_ANIM_MOVE_RIGHT;
 
     current_screen = target;
-    lv_scr_load_anim(screens[target], anim, 300, 0, false);
+    lv_obj_t *target_screens[] = {scr_home, scr_dashboard, scr_charts};
+    lv_scr_load_anim(target_screens[target], anim, 300, 0, false);
 }
 
 // Navigation button callback
@@ -41,7 +46,7 @@ static void nav_btn_event_cb(lv_event_t *e)
     navigate_to(target);
 }
 
-// Swipe gesture callback
+// Swipe gesture callback - detect horizontal swipes to switch screens
 static void swipe_event_cb(lv_event_t *e)
 {
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
@@ -52,20 +57,6 @@ static void swipe_event_cb(lv_event_t *e)
         navigate_to((ui_screen_t)(current_screen - 1));
     }
 }
-
-// Nav button definitions
-typedef struct {
-    const char  *label;
-    ui_screen_t  screen;
-} nav_btn_def_t;
-
-static const nav_btn_def_t NAV_BUTTONS[] = {
-    {"Home",    UI_SCREEN_HOME},
-    {"Details", UI_SCREEN_DASHBOARD},
-    {"Charts",  UI_SCREEN_CHARTS},
-    {"Allsky",  UI_SCREEN_ALLSKY},
-};
-#define NUM_NAV_BUTTONS (sizeof(NAV_BUTTONS) / sizeof(NAV_BUTTONS[0]))
 
 // Create the bottom navigation bar on a screen
 static lv_obj_t *create_nav_bar(lv_obj_t *parent)
@@ -80,18 +71,38 @@ static lv_obj_t *create_nav_bar(lv_obj_t *parent)
     lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    for (int i = 0; i < (int)NUM_NAV_BUTTONS; i++) {
-        lv_obj_t *btn = lv_btn_create(bar);
-        lv_obj_set_size(btn, 105, 36);
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x16213e), 0);
-        lv_obj_set_style_radius(btn, 8, 0);
-        lv_obj_t *lbl = lv_label_create(btn);
-        lv_label_set_text(lbl, NAV_BUTTONS[i].label);
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-        lv_obj_center(lbl);
-        lv_obj_add_event_cb(btn, nav_btn_event_cb, LV_EVENT_CLICKED,
-                            (void *)(intptr_t)NAV_BUTTONS[i].screen);
-    }
+    // Home button
+    lv_obj_t *btn_home = lv_btn_create(bar);
+    lv_obj_set_size(btn_home, 130, 36);
+    lv_obj_set_style_bg_color(btn_home, lv_color_hex(0x16213e), 0);
+    lv_obj_set_style_radius(btn_home, 8, 0);
+    lv_obj_t *lbl = lv_label_create(btn_home);
+    lv_label_set_text(lbl, "Home");
+    lv_obj_center(lbl);
+    lv_obj_add_event_cb(btn_home, nav_btn_event_cb, LV_EVENT_CLICKED,
+                        (void *)(intptr_t)UI_SCREEN_HOME);
+
+    // Dashboard button
+    lv_obj_t *btn_dash = lv_btn_create(bar);
+    lv_obj_set_size(btn_dash, 130, 36);
+    lv_obj_set_style_bg_color(btn_dash, lv_color_hex(0x16213e), 0);
+    lv_obj_set_style_radius(btn_dash, 8, 0);
+    lbl = lv_label_create(btn_dash);
+    lv_label_set_text(lbl, "Details");
+    lv_obj_center(lbl);
+    lv_obj_add_event_cb(btn_dash, nav_btn_event_cb, LV_EVENT_CLICKED,
+                        (void *)(intptr_t)UI_SCREEN_DASHBOARD);
+
+    // Charts button
+    lv_obj_t *btn_charts = lv_btn_create(bar);
+    lv_obj_set_size(btn_charts, 130, 36);
+    lv_obj_set_style_bg_color(btn_charts, lv_color_hex(0x16213e), 0);
+    lv_obj_set_style_radius(btn_charts, 8, 0);
+    lbl = lv_label_create(btn_charts);
+    lv_label_set_text(lbl, "Charts");
+    lv_obj_center(lbl);
+    lv_obj_add_event_cb(btn_charts, nav_btn_event_cb, LV_EVENT_CLICKED,
+                        (void *)(intptr_t)UI_SCREEN_CHARTS);
 
     // WiFi status indicator
     lv_obj_t *wifi_lbl = lv_label_create(bar);
@@ -110,43 +121,45 @@ esp_err_t ui_init(void)
 {
     ESP_LOGI(TAG, "Initializing UI...");
 
+    // Lock LVGL for thread-safe creation
     if (bsp_display_lock(1000)) {
         // Set dark theme
         lv_theme_t *th = lv_theme_default_init(
             lv_display_get_default(),
-            lv_color_hex(0x0f3460),
-            lv_color_hex(0xe94560),
-            true,
+            lv_color_hex(0x0f3460),   // primary color
+            lv_color_hex(0xe94560),   // secondary color
+            true,                      // dark mode
             LV_FONT_DEFAULT
         );
         lv_display_set_theme(lv_display_get_default(), th);
 
-        // Create all screens
-        for (int i = 0; i < UI_SCREEN_COUNT; i++) {
-            screens[i] = lv_obj_create(NULL);
-            lv_obj_set_style_bg_color(screens[i], lv_color_hex(0x0a0a1a), 0);
-            lv_obj_add_event_cb(screens[i], swipe_event_cb, LV_EVENT_GESTURE, NULL);
-        }
+        // Create home screen (new default)
+        scr_home = lv_obj_create(NULL);
+        lv_obj_set_style_bg_color(scr_home, lv_color_hex(0x0a0a1a), 0);
+        ui_home_create(scr_home);
+        lv_obj_t *nav0 = create_nav_bar(scr_home);
+        lv_obj_add_event_cb(scr_home, swipe_event_cb, LV_EVENT_GESTURE, NULL);
 
-        // Populate each screen
-        ui_home_create(screens[UI_SCREEN_HOME]);
-        lv_obj_t *nav0 = create_nav_bar(screens[UI_SCREEN_HOME]);
+        // Create dashboard screen
+        scr_dashboard = lv_obj_create(NULL);
+        lv_obj_set_style_bg_color(scr_dashboard, lv_color_hex(0x0a0a1a), 0);
+        ui_dashboard_create(scr_dashboard);
+        create_nav_bar(scr_dashboard);
+        lv_obj_add_event_cb(scr_dashboard, swipe_event_cb, LV_EVENT_GESTURE, NULL);
 
-        ui_dashboard_create(screens[UI_SCREEN_DASHBOARD]);
-        create_nav_bar(screens[UI_SCREEN_DASHBOARD]);
-
-        ui_charts_create(screens[UI_SCREEN_CHARTS]);
-        create_nav_bar(screens[UI_SCREEN_CHARTS]);
-
-        ui_allsky_create(screens[UI_SCREEN_ALLSKY]);
-        create_nav_bar(screens[UI_SCREEN_ALLSKY]);
+        // Create charts screen
+        scr_charts = lv_obj_create(NULL);
+        lv_obj_set_style_bg_color(scr_charts, lv_color_hex(0x0a0a1a), 0);
+        ui_charts_create(scr_charts);
+        create_nav_bar(scr_charts);
+        lv_obj_add_event_cb(scr_charts, swipe_event_cb, LV_EVENT_GESTURE, NULL);
 
         // Store references to shared widgets from the home nav bar
-        // Nav bar children: [btn0, btn1, btn2, btn3, wifi_lbl, cd_lbl]
-        lbl_wifi_status = lv_obj_get_child(nav0, NUM_NAV_BUTTONS);
-        lbl_countdown = lv_obj_get_child(nav0, NUM_NAV_BUTTONS + 1);
+        lbl_wifi_status = lv_obj_get_child(nav0, 3);  // WiFi icon
+        lbl_countdown = lv_obj_get_child(nav0, 4);    // Countdown label
 
-        lv_scr_load(screens[UI_SCREEN_HOME]);
+        // Load home as the default screen
+        lv_scr_load(scr_home);
 
         bsp_display_unlock();
     } else {
@@ -154,7 +167,7 @@ esp_err_t ui_init(void)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "UI initialized (4 screens, swipe enabled)");
+    ESP_LOGI(TAG, "UI initialized (swipe enabled)");
     return ESP_OK;
 }
 
@@ -205,21 +218,4 @@ void ui_update_wifi_status(bool connected)
             connected ? lv_color_hex(0x00ff88) : lv_color_hex(0xff3333), 0);
         bsp_display_unlock();
     }
-}
-
-void ui_update_time(const char *time_str)
-{
-    if (!time_str) return;
-
-    if (bsp_display_lock(50)) {
-        ui_home_update_time(time_str);
-        bsp_display_unlock();
-    }
-}
-
-void ui_update_allsky(void)
-{
-    // The fetch function handles its own LVGL locking — it only holds the lock
-    // for brief UI updates, not during the HTTP download or JPEG decode.
-    ui_allsky_fetch_and_update();
 }
