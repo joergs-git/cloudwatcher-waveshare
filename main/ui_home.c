@@ -20,6 +20,9 @@ static const char *TAG = "ui_home";
 #define COLOR_SKY_LINE  lv_color_hex(0x00e676)  // green for sky temp
 #define COLOR_AMB_LINE  lv_color_hex(0xff5252)  // red for ambient temp
 
+// Clock label (top right)
+static lv_obj_t *lbl_clock = NULL;
+
 // Big status labels
 static lv_obj_t *lbl_cloud_state = NULL;
 static lv_obj_t *lbl_rain_state = NULL;
@@ -105,12 +108,19 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(lbl_cloud_state, COLOR_TEXT_DIM, 0);
     lv_obj_align(lbl_cloud_state, LV_ALIGN_TOP_LEFT, 40, 15);
 
+    // Clock (top right)
+    lbl_clock = lv_label_create(parent);
+    lv_label_set_text(lbl_clock, "--:--");
+    lv_obj_set_style_text_font(lbl_clock, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(lbl_clock, COLOR_TEXT_DIM, 0);
+    lv_obj_align(lbl_clock, LV_ALIGN_TOP_RIGHT, -30, 18);
+
     // Rain state (e.g., "DRY", "WET", "RAIN")
     lbl_rain_state = lv_label_create(parent);
     lv_label_set_text(lbl_rain_state, "---");
     lv_obj_set_style_text_font(lbl_rain_state, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(lbl_rain_state, COLOR_TEXT_DIM, 0);
-    lv_obj_align(lbl_rain_state, LV_ALIGN_TOP_RIGHT, -40, 15);
+    lv_obj_align(lbl_rain_state, LV_ALIGN_TOP_RIGHT, -130, 15);
 
     // Safe/Unsafe indicator between the two
     lbl_safe_banner = lv_label_create(parent);
@@ -272,4 +282,11 @@ void ui_home_update_graph(const cw_graph_data_t graphs[CW_GRAPH_SERIES_COUNT])
 
     ESP_LOGI(TAG, "Home chart updated: sky=%d pts, amb=%d pts",
              sky->today_count, amb->today_count);
+}
+
+void ui_home_update_time(const char *time_str)
+{
+    if (lbl_clock && time_str) {
+        lv_label_set_text(lbl_clock, time_str);
+    }
 }

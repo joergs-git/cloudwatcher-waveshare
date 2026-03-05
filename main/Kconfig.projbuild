@@ -36,4 +36,17 @@ menu "CloudWatcher Configuration"
         help
             How often to fetch 24h graph data from graphData.pl.
 
+    config CW_ALLSKY_KEOGRAM_URL
+        string "Allsky Keogram Image URL"
+        default "https://192.168.1.50/indi-allsky/images/keograms/keogram_realtime.jpg"
+        help
+            Direct URL to the indi-allsky realtime keogram JPEG image.
+            Must be a direct image URL (not an HTML page).
+
+    config CW_ALLSKY_POLL_INTERVAL_S
+        int "Allsky image poll interval (seconds)"
+        default 300
+        help
+            How often to fetch the allsky keogram image (default 5 minutes).
+
 endmenu
