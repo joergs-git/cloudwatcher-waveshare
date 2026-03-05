@@ -1,0 +1,39 @@
+menu "CloudWatcher Configuration"
+
+    config CW_WIFI_SSID
+        string "WiFi SSID"
+        default "MyNetwork"
+        help
+            WiFi network name to connect to.
+
+    config CW_WIFI_PASSWORD
+        string "WiFi Password"
+        default "MyPassword"
+        help
+            WiFi network password.
+
+    config CW_HOST_IP
+        string "CloudWatcher IP Address"
+        default "192.168.1.151"
+        help
+            IP address of the AAG CloudWatcher Solo device.
+
+    config CW_HOST_PORT
+        int "CloudWatcher HTTP Port"
+        default 80
+        help
+            HTTP port of the CloudWatcher device.
+
+    config CW_POLL_INTERVAL_S
+        int "Current data poll interval (seconds)"
+        default 60
+        help
+            How often to fetch current sensor data from lastData.pl.
+
+    config CW_GRAPH_POLL_INTERVAL_S
+        int "Graph data poll interval (seconds)"
+        default 240
+        help
+            How often to fetch 24h graph data from graphData.pl.
+
+endmenu

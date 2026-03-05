@@ -1,0 +1,22 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "wifi_manager.c"
+        "cloudwatcher_client.c"
+        "display_driver.c"
+        "ui_main.c"
+        "ui_home.c"
+        "ui_dashboard.c"
+        "ui_charts.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        esp_wifi
+        esp_http_client
+        nvs_flash
+        esp_event
+        esp_timer
+        driver
+        esp_psram
+        esp_lcd_touch_gt911
+)
