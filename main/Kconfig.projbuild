@@ -52,6 +52,12 @@ menu "NINA Configuration"
         help
             HTTP port of the ninaAPI Advanced API plugin.
 
+    config NINA_DOME_PORT
+        int "NINA Dome API Port"
+        default 1888
+        help
+            HTTP port of the NINA instance controlling the dome (may differ from image instance).
+
     config NINA_POLL_INTERVAL_S
         int "NINA image poll interval (seconds)"
         default 300

@@ -23,4 +23,5 @@ idf_component_register(
         esp_lcd_touch_gt911
         json
         esp_driver_jpeg
+        esp_jpeg
 )

@@ -35,4 +35,10 @@ void ui_update_nina_data(const nina_image_data_t *data);
 // Update NINA screen status message (thread-safe via LVGL lock)
 void ui_update_nina_status(const char *message);
 
+// Update dome status on home screen (thread-safe via LVGL lock)
+void ui_update_dome_status(const nina_dome_status_t *dome);
+
+// Request an immediate NINA image refresh (called from UI tap handler)
+void nina_request_refresh(void);
+
 #endif // UI_MAIN_H

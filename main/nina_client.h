@@ -25,6 +25,7 @@ typedef struct {
     int      gain;
     int      offset;
     int      image_count;     // total images in history
+    char     timestamp[32];   // capture date/time string
     bool     valid;           // metadata parsed successfully
 } nina_image_meta_t;
 
@@ -38,7 +39,16 @@ typedef struct {
     bool              image_valid;  // image decoded successfully
 } nina_image_data_t;
 
-// Initialize NINA client (creates HW JPEG decoder, allocates buffers)
+// Dome status
+typedef struct {
+    bool connected;
+    bool shutter_open;      // true = open, false = closed/unknown
+    char shutter_status[16]; // "Open", "Closed", "Opening", "Closing" etc.
+    bool at_park;
+    bool valid;
+} nina_dome_status_t;
+
+// Initialize NINA client (allocates buffers)
 esp_err_t nina_client_init(void);
 
 // Fetch latest image + metadata from NINA API
@@ -46,5 +56,9 @@ esp_err_t nina_client_init(void);
 // Returns ESP_ERR_NOT_FOUND if NINA is reachable but has no images
 // Returns ESP_FAIL if NINA API is unreachable
 esp_err_t nina_fetch_image(nina_image_data_t *out);
+
+// Fetch dome status from NINA API
+// Returns ESP_OK on success, ESP_FAIL if unreachable
+esp_err_t nina_fetch_dome_status(nina_dome_status_t *out);
 
 #endif // NINA_CLIENT_H

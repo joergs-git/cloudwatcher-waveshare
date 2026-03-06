@@ -21,6 +21,14 @@ static const char *TAG = "main";
 // Graph data allocated in PSRAM (large arrays: ~108KB for 6 series)
 static cw_graph_data_t *graph_data = NULL;
 
+// Flag for manual NINA image refresh (set by UI tap, checked by poll task)
+static volatile bool nina_refresh_flag = false;
+
+void nina_request_refresh(void)
+{
+    nina_refresh_flag = true;
+}
+
 // Data polling task: fetches sensor data on schedule
 static void cw_poll_task(void *arg)
 {
@@ -102,9 +110,11 @@ static void nina_poll_task(void *arg)
              CONFIG_NINA_HOST_IP, CONFIG_NINA_HOST_PORT, CONFIG_NINA_POLL_INTERVAL_S);
 
     nina_image_data_t image_data;
+    nina_dome_status_t dome_status;
 
     while (1) {
         if (wifi_manager_is_connected()) {
+            // Fetch latest image from NINA
             esp_err_t err = nina_fetch_image(&image_data);
             if (err == ESP_OK) {
                 ui_update_nina_data(&image_data);
@@ -113,11 +123,25 @@ static void nina_poll_task(void *arg)
             } else {
                 ui_update_nina_status("NINA offline");
             }
+
+            // Fetch dome status for home screen
+            err = nina_fetch_dome_status(&dome_status);
+            if (err == ESP_OK) {
+                ui_update_dome_status(&dome_status);
+            }
         } else {
             ui_update_nina_status("WiFi disconnected");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(CONFIG_NINA_POLL_INTERVAL_S * 1000));
+        // Wait for next poll interval, but check for manual refresh every second
+        for (int s = CONFIG_NINA_POLL_INTERVAL_S; s > 0; s--) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            if (nina_refresh_flag) {
+                nina_refresh_flag = false;
+                ESP_LOGI(TAG, "NINA manual refresh triggered");
+                break;
+            }
+        }
     }
 }
 
@@ -155,8 +179,8 @@ void app_main(void)
     // Stack needs to be large enough for LVGL chart rendering (float formatting + 400 point updates)
     xTaskCreate(cw_poll_task, "cw_poll", 16384, NULL, 5, NULL);
 
-    // Launch NINA image polling task (separate task, runs every 5 min)
-    xTaskCreate(nina_poll_task, "nina_poll", 8192, NULL, 4, NULL);
+    // Launch NINA image polling task (needs large stack for HTTP client + JSON parsing)
+    xTaskCreate(nina_poll_task, "nina_poll", 16384, NULL, 4, NULL);
 
     ESP_LOGI(TAG, "Initialization complete. CW polling %s:%d every %ds, NINA polling %s:%d every %ds",
              CONFIG_CW_HOST_IP, CONFIG_CW_HOST_PORT, CONFIG_CW_POLL_INTERVAL_S,

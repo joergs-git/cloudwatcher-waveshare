@@ -133,8 +133,10 @@ esp_err_t ui_init(void)
         lv_obj_add_event_cb(scr_home, swipe_event_cb, LV_EVENT_GESTURE, NULL);
 
         // Create NINA image screen (screen 2)
+        // Disable scrolling - canvas is wider than screen, would eat swipe gestures
         scr_nina = lv_obj_create(NULL);
         lv_obj_set_style_bg_color(scr_nina, lv_color_hex(0x0a0a1a), 0);
+        lv_obj_clear_flag(scr_nina, LV_OBJ_FLAG_SCROLLABLE);
         ui_nina_create(scr_nina);
         create_nav_bar(scr_nina);
         lv_obj_add_event_cb(scr_nina, swipe_event_cb, LV_EVENT_GESTURE, NULL);
@@ -226,6 +228,16 @@ void ui_update_nina_data(const nina_image_data_t *data)
 
     if (bsp_display_lock(200)) {
         ui_nina_update(data);
+        bsp_display_unlock();
+    }
+}
+
+void ui_update_dome_status(const nina_dome_status_t *dome)
+{
+    if (!dome) return;
+
+    if (bsp_display_lock(100)) {
+        ui_home_update_dome(dome);
         bsp_display_unlock();
     }
 }

@@ -5,6 +5,7 @@
 #include "cloudwatcher_client.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <float.h>
 #include "esp_log.h"
@@ -15,6 +16,7 @@ static const char *TAG = "ui_home";
 #define COLOR_GREEN     lv_color_hex(0x00c853)
 #define COLOR_RED       lv_color_hex(0xff4444)
 #define COLOR_YELLOW    lv_color_hex(0xffab00)
+#define COLOR_BLUE      lv_color_hex(0x42a5f5)
 #define COLOR_TEXT_DIM  lv_color_hex(0x8899aa)
 #define COLOR_TEXT_BRIGHT lv_color_hex(0xe0e0e0)
 #define COLOR_SKY_LINE  lv_color_hex(0x00e676)  // green for sky temp
@@ -24,6 +26,9 @@ static const char *TAG = "ui_home";
 static lv_obj_t *lbl_cloud_state = NULL;
 static lv_obj_t *lbl_rain_state = NULL;
 static lv_obj_t *lbl_safe_banner = NULL;
+
+// Dome status label
+static lv_obj_t *lbl_dome = NULL;
 
 // Value labels below the big status
 static lv_obj_t *lbl_sky_temp = NULL;
@@ -188,6 +193,13 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(leg_amb, COLOR_AMB_LINE, 0);
     lv_obj_align(leg_amb, LV_ALIGN_TOP_LEFT, CHART_X_OFFSET + 150, CHART_Y_TOP + CHART_HEIGHT + 5);
 
+    // Dome status label (big, centered below chart legend)
+    lbl_dome = lv_label_create(parent);
+    lv_label_set_text(lbl_dome, "");
+    lv_obj_set_style_text_font(lbl_dome, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(lbl_dome, COLOR_TEXT_DIM, 0);
+    lv_obj_align(lbl_dome, LV_ALIGN_TOP_MID, 0, CHART_Y_TOP + CHART_HEIGHT + 25);
+
     ESP_LOGI(TAG, "Home screen created");
     return parent;
 }
@@ -272,4 +284,34 @@ void ui_home_update_graph(const cw_graph_data_t graphs[CW_GRAPH_SERIES_COUNT])
 
     ESP_LOGI(TAG, "Home chart updated: sky=%d pts, amb=%d pts",
              sky->today_count, amb->today_count);
+}
+
+void ui_home_update_dome(const nina_dome_status_t *dome)
+{
+    if (!dome || !lbl_dome) return;
+
+    if (!dome->valid) {
+        lv_label_set_text(lbl_dome, "DOME --");
+        lv_obj_set_style_text_color(lbl_dome, COLOR_TEXT_DIM, 0);
+        return;
+    }
+
+    // Show shutter status regardless of connected flag
+    if (dome->shutter_status[0]) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "DOME %s", dome->shutter_status);
+
+        // Red when open (exposed to weather), green when closed (safe), yellow for transitional
+        if (dome->shutter_open) {
+            lv_obj_set_style_text_color(lbl_dome, COLOR_RED, 0);
+        } else if (strcmp(dome->shutter_status, "Closed") == 0) {
+            lv_obj_set_style_text_color(lbl_dome, COLOR_GREEN, 0);
+        } else {
+            lv_obj_set_style_text_color(lbl_dome, COLOR_YELLOW, 0);
+        }
+        lv_label_set_text(lbl_dome, buf);
+    } else {
+        lv_label_set_text(lbl_dome, "DOME N/A");
+        lv_obj_set_style_text_color(lbl_dome, COLOR_TEXT_DIM, 0);
+    }
 }
