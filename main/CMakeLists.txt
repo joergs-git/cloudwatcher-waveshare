@@ -3,9 +3,11 @@ idf_component_register(
         "main.c"
         "wifi_manager.c"
         "cloudwatcher_client.c"
+        "nina_client.c"
         "display_driver.c"
         "ui_main.c"
         "ui_home.c"
+        "ui_nina.c"
         "ui_dashboard.c"
         "ui_charts.c"
     INCLUDE_DIRS
@@ -19,4 +21,6 @@ idf_component_register(
         driver
         esp_psram
         esp_lcd_touch_gt911
+        json
+        esp_driver_jpeg
 )

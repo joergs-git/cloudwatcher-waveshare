@@ -1,6 +1,6 @@
 // Charts screen - 24h historical graphs with tabbed navigation
 // Displays today (solid) + yesterday (dimmer) line series
-// v0.2.0
+// v0.4.0
 
 #include "ui_charts.h"
 #include "cloudwatcher_client.h"
@@ -128,6 +128,20 @@ static void update_y_axis_labels(float range_min, float range_max)
     }
 }
 
+// Get fixed Y-axis range for a chart series
+// Returns true if a fixed range is defined, false for auto-scaling
+static bool get_fixed_range(cw_graph_series_t series, float *out_min, float *out_max)
+{
+    switch (series) {
+        case CW_GRAPH_CLOUDS:   *out_min = -20.0f; *out_max = 35.0f;   return true;
+        case CW_GRAPH_TEMP:     *out_min = -20.0f; *out_max = 35.0f;   return true;
+        case CW_GRAPH_HUMIDITY: *out_min = 30.0f;  *out_max = 100.0f;  return true;
+        case CW_GRAPH_RAIN:     *out_min = 0.0f;   *out_max = 3200.0f; return true;
+        case CW_GRAPH_LIGHT:    *out_min = 10.0f;  *out_max = 23.0f;   return true;
+        default:                return false;
+    }
+}
+
 // Render the currently selected chart tab
 static void render_active_chart(void)
 {
@@ -144,22 +158,27 @@ static void render_active_chart(void)
     calc_min_max(g->today, g->today_count, &min_t, &max_t);
     calc_min_max(g->yesterday, g->yesterday_count, &min_y, &max_y);
 
-    float data_min = fminf(min_t, min_y);
-    float data_max = fmaxf(max_t, max_y);
+    float range_min, range_max;
 
-    // Round to nice boundaries
-    float step = (data_max - data_min) / (Y_AXIS_LABELS - 1);
-    if (step < 1.0f) step = 1.0f;
-    // Round step up to a nice number (1, 2, 5, 10, 20, 50...)
-    float mag = powf(10.0f, floorf(log10f(step)));
-    if (step / mag <= 1.0f) step = mag;
-    else if (step / mag <= 2.0f) step = 2.0f * mag;
-    else if (step / mag <= 5.0f) step = 5.0f * mag;
-    else step = 10.0f * mag;
+    // Use fixed range if defined, otherwise auto-scale
+    if (!get_fixed_range(tab->series, &range_min, &range_max)) {
+        float data_min = fminf(min_t, min_y);
+        float data_max = fmaxf(max_t, max_y);
 
-    float range_min = floorf(data_min / step) * step;
-    float range_max = ceilf(data_max / step) * step;
-    if (range_max <= range_min) range_max = range_min + step;
+        // Round to nice boundaries
+        float step = (data_max - data_min) / (Y_AXIS_LABELS - 1);
+        if (step < 1.0f) step = 1.0f;
+        // Round step up to a nice number (1, 2, 5, 10, 20, 50...)
+        float mag = powf(10.0f, floorf(log10f(step)));
+        if (step / mag <= 1.0f) step = mag;
+        else if (step / mag <= 2.0f) step = 2.0f * mag;
+        else if (step / mag <= 5.0f) step = 5.0f * mag;
+        else step = 10.0f * mag;
+
+        range_min = floorf(data_min / step) * step;
+        range_max = ceilf(data_max / step) * step;
+        if (range_max <= range_min) range_max = range_min + step;
+    }
 
     // Set chart Y range (values *10 for precision)
     lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y,

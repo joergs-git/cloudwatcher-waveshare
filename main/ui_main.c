@@ -1,8 +1,9 @@
 // LVGL UI manager - screen management, swipe navigation, and data updates
-// v0.3.0
+// v0.4.0
 
 #include "ui_main.h"
 #include "ui_home.h"
+#include "ui_nina.h"
 #include "ui_dashboard.h"
 #include "ui_charts.h"
 
@@ -14,6 +15,7 @@ static const char *TAG = "ui_main";
 
 // Screen objects
 static lv_obj_t *scr_home = NULL;
+static lv_obj_t *scr_nina = NULL;
 static lv_obj_t *scr_dashboard = NULL;
 static lv_obj_t *scr_charts = NULL;
 static ui_screen_t current_screen = UI_SCREEN_HOME;
@@ -21,9 +23,6 @@ static ui_screen_t current_screen = UI_SCREEN_HOME;
 // Bottom navigation bar widgets (shared across screens)
 static lv_obj_t *lbl_countdown = NULL;
 static lv_obj_t *lbl_wifi_status = NULL;
-
-// Screen array for indexed access
-static lv_obj_t **screens_arr[UI_SCREEN_COUNT];
 
 // Navigate to a specific screen with appropriate animation direction
 static void navigate_to(ui_screen_t target)
@@ -35,7 +34,7 @@ static void navigate_to(ui_screen_t target)
         : LV_SCR_LOAD_ANIM_MOVE_RIGHT;
 
     current_screen = target;
-    lv_obj_t *target_screens[] = {scr_home, scr_dashboard, scr_charts};
+    lv_obj_t *target_screens[] = {scr_home, scr_nina, scr_dashboard, scr_charts};
     lv_scr_load_anim(target_screens[target], anim, 300, 0, false);
 }
 
@@ -58,6 +57,18 @@ static void swipe_event_cb(lv_event_t *e)
     }
 }
 
+// Navigation button definitions
+static const struct {
+    const char  *label;
+    ui_screen_t  screen;
+} nav_buttons[] = {
+    {"Home",    UI_SCREEN_HOME},
+    {"NINA",    UI_SCREEN_NINA},
+    {"Details", UI_SCREEN_DASHBOARD},
+    {"Charts",  UI_SCREEN_CHARTS},
+};
+#define NAV_BTN_COUNT (sizeof(nav_buttons) / sizeof(nav_buttons[0]))
+
 // Create the bottom navigation bar on a screen
 static lv_obj_t *create_nav_bar(lv_obj_t *parent)
 {
@@ -71,38 +82,19 @@ static lv_obj_t *create_nav_bar(lv_obj_t *parent)
     lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    // Home button
-    lv_obj_t *btn_home = lv_btn_create(bar);
-    lv_obj_set_size(btn_home, 130, 36);
-    lv_obj_set_style_bg_color(btn_home, lv_color_hex(0x16213e), 0);
-    lv_obj_set_style_radius(btn_home, 8, 0);
-    lv_obj_t *lbl = lv_label_create(btn_home);
-    lv_label_set_text(lbl, "Home");
-    lv_obj_center(lbl);
-    lv_obj_add_event_cb(btn_home, nav_btn_event_cb, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)UI_SCREEN_HOME);
-
-    // Dashboard button
-    lv_obj_t *btn_dash = lv_btn_create(bar);
-    lv_obj_set_size(btn_dash, 130, 36);
-    lv_obj_set_style_bg_color(btn_dash, lv_color_hex(0x16213e), 0);
-    lv_obj_set_style_radius(btn_dash, 8, 0);
-    lbl = lv_label_create(btn_dash);
-    lv_label_set_text(lbl, "Details");
-    lv_obj_center(lbl);
-    lv_obj_add_event_cb(btn_dash, nav_btn_event_cb, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)UI_SCREEN_DASHBOARD);
-
-    // Charts button
-    lv_obj_t *btn_charts = lv_btn_create(bar);
-    lv_obj_set_size(btn_charts, 130, 36);
-    lv_obj_set_style_bg_color(btn_charts, lv_color_hex(0x16213e), 0);
-    lv_obj_set_style_radius(btn_charts, 8, 0);
-    lbl = lv_label_create(btn_charts);
-    lv_label_set_text(lbl, "Charts");
-    lv_obj_center(lbl);
-    lv_obj_add_event_cb(btn_charts, nav_btn_event_cb, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)UI_SCREEN_CHARTS);
+    // Create navigation buttons
+    for (int i = 0; i < (int)NAV_BTN_COUNT; i++) {
+        lv_obj_t *btn = lv_btn_create(bar);
+        lv_obj_set_size(btn, 100, 36);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x16213e), 0);
+        lv_obj_set_style_radius(btn, 8, 0);
+        lv_obj_t *lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, nav_buttons[i].label);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+        lv_obj_center(lbl);
+        lv_obj_add_event_cb(btn, nav_btn_event_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)nav_buttons[i].screen);
+    }
 
     // WiFi status indicator
     lv_obj_t *wifi_lbl = lv_label_create(bar);
@@ -133,12 +125,19 @@ esp_err_t ui_init(void)
         );
         lv_display_set_theme(lv_display_get_default(), th);
 
-        // Create home screen (new default)
+        // Create home screen (default)
         scr_home = lv_obj_create(NULL);
         lv_obj_set_style_bg_color(scr_home, lv_color_hex(0x0a0a1a), 0);
         ui_home_create(scr_home);
         lv_obj_t *nav0 = create_nav_bar(scr_home);
         lv_obj_add_event_cb(scr_home, swipe_event_cb, LV_EVENT_GESTURE, NULL);
+
+        // Create NINA image screen (screen 2)
+        scr_nina = lv_obj_create(NULL);
+        lv_obj_set_style_bg_color(scr_nina, lv_color_hex(0x0a0a1a), 0);
+        ui_nina_create(scr_nina);
+        create_nav_bar(scr_nina);
+        lv_obj_add_event_cb(scr_nina, swipe_event_cb, LV_EVENT_GESTURE, NULL);
 
         // Create dashboard screen
         scr_dashboard = lv_obj_create(NULL);
@@ -155,8 +154,9 @@ esp_err_t ui_init(void)
         lv_obj_add_event_cb(scr_charts, swipe_event_cb, LV_EVENT_GESTURE, NULL);
 
         // Store references to shared widgets from the home nav bar
-        lbl_wifi_status = lv_obj_get_child(nav0, 3);  // WiFi icon
-        lbl_countdown = lv_obj_get_child(nav0, 4);    // Countdown label
+        // WiFi icon is child index NAV_BTN_COUNT (after all buttons)
+        lbl_wifi_status = lv_obj_get_child(nav0, NAV_BTN_COUNT);
+        lbl_countdown = lv_obj_get_child(nav0, NAV_BTN_COUNT + 1);
 
         // Load home as the default screen
         lv_scr_load(scr_home);
@@ -167,7 +167,7 @@ esp_err_t ui_init(void)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "UI initialized (swipe enabled)");
+    ESP_LOGI(TAG, "UI initialized (%d screens, swipe enabled)", UI_SCREEN_COUNT);
     return ESP_OK;
 }
 
@@ -216,6 +216,26 @@ void ui_update_wifi_status(bool connected)
     if (bsp_display_lock(50)) {
         lv_obj_set_style_text_color(lbl_wifi_status,
             connected ? lv_color_hex(0x00ff88) : lv_color_hex(0xff3333), 0);
+        bsp_display_unlock();
+    }
+}
+
+void ui_update_nina_data(const nina_image_data_t *data)
+{
+    if (!data) return;
+
+    if (bsp_display_lock(200)) {
+        ui_nina_update(data);
+        bsp_display_unlock();
+    }
+}
+
+void ui_update_nina_status(const char *message)
+{
+    if (!message) return;
+
+    if (bsp_display_lock(100)) {
+        ui_nina_set_status(message);
         bsp_display_unlock();
     }
 }

@@ -1,6 +1,6 @@
 // CloudWatcher Waveshare Display - Main Entry Point
 // Displays AAG CloudWatcher Solo sensor data on Waveshare ESP32-P4 Touch LCD 4B
-// v0.1.0
+// v0.4.0
 
 #include <stdio.h>
 #include <string.h>
@@ -12,6 +12,7 @@
 
 #include "wifi_manager.h"
 #include "cloudwatcher_client.h"
+#include "nina_client.h"
 #include "display_driver.h"
 #include "ui_main.h"
 
@@ -89,9 +90,40 @@ static void cw_poll_task(void *arg)
     }
 }
 
+// NINA image polling task: fetches latest sub-exposure every N seconds
+static void nina_poll_task(void *arg)
+{
+    // Wait for WiFi before starting
+    ESP_LOGI(TAG, "NINA poll task waiting for WiFi...");
+    while (!wifi_manager_is_connected()) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    ESP_LOGI(TAG, "Starting NINA image polling (%s:%d every %ds)",
+             CONFIG_NINA_HOST_IP, CONFIG_NINA_HOST_PORT, CONFIG_NINA_POLL_INTERVAL_S);
+
+    nina_image_data_t image_data;
+
+    while (1) {
+        if (wifi_manager_is_connected()) {
+            esp_err_t err = nina_fetch_image(&image_data);
+            if (err == ESP_OK) {
+                ui_update_nina_data(&image_data);
+            } else if (err == ESP_ERR_NOT_FOUND) {
+                ui_update_nina_status("No active session");
+            } else {
+                ui_update_nina_status("NINA offline");
+            }
+        } else {
+            ui_update_nina_status("WiFi disconnected");
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(CONFIG_NINA_POLL_INTERVAL_S * 1000));
+    }
+}
+
 void app_main(void)
 {
-    ESP_LOGI(TAG, "CloudWatcher Waveshare Display v0.1.0");
+    ESP_LOGI(TAG, "CloudWatcher Waveshare Display v0.4.0");
     ESP_LOGI(TAG, "Free heap: %lu, PSRAM: %lu",
              (unsigned long)esp_get_free_heap_size(),
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -116,10 +148,17 @@ void app_main(void)
     // Initialize CloudWatcher HTTP client
     ESP_ERROR_CHECK(cw_client_init());
 
+    // Initialize NINA API client (HW JPEG decoder + buffers)
+    ESP_ERROR_CHECK(nina_client_init());
+
     // Launch the data polling task (runs on any core)
     // Stack needs to be large enough for LVGL chart rendering (float formatting + 400 point updates)
     xTaskCreate(cw_poll_task, "cw_poll", 16384, NULL, 5, NULL);
 
-    ESP_LOGI(TAG, "Initialization complete. Polling %s:%d every %ds",
-             CONFIG_CW_HOST_IP, CONFIG_CW_HOST_PORT, CONFIG_CW_POLL_INTERVAL_S);
+    // Launch NINA image polling task (separate task, runs every 5 min)
+    xTaskCreate(nina_poll_task, "nina_poll", 8192, NULL, 4, NULL);
+
+    ESP_LOGI(TAG, "Initialization complete. CW polling %s:%d every %ds, NINA polling %s:%d every %ds",
+             CONFIG_CW_HOST_IP, CONFIG_CW_HOST_PORT, CONFIG_CW_POLL_INTERVAL_S,
+             CONFIG_NINA_HOST_IP, CONFIG_NINA_HOST_PORT, CONFIG_NINA_POLL_INTERVAL_S);
 }

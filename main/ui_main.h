@@ -3,10 +3,12 @@
 
 #include "esp_err.h"
 #include "cloudwatcher_client.h"
+#include "nina_client.h"
 
-// Screen identifiers
+// Screen identifiers (order determines swipe navigation sequence)
 typedef enum {
     UI_SCREEN_HOME = 0,
+    UI_SCREEN_NINA,
     UI_SCREEN_DASHBOARD,
     UI_SCREEN_CHARTS,
     UI_SCREEN_COUNT
@@ -26,5 +28,11 @@ void ui_update_countdown(int seconds_until_refresh);
 
 // Update WiFi connection status indicator
 void ui_update_wifi_status(bool connected);
+
+// Update NINA screen with new image data (thread-safe via LVGL lock)
+void ui_update_nina_data(const nina_image_data_t *data);
+
+// Update NINA screen status message (thread-safe via LVGL lock)
+void ui_update_nina_status(const char *message);
 
 #endif // UI_MAIN_H

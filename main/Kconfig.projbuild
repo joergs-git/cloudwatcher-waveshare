@@ -37,3 +37,25 @@ menu "CloudWatcher Configuration"
             How often to fetch 24h graph data from graphData.pl.
 
 endmenu
+
+menu "NINA Configuration"
+
+    config NINA_HOST_IP
+        string "NINA PC IP Address"
+        default "192.168.1.114"
+        help
+            IP address of the imaging PC running N.I.N.A. with the Advanced API plugin.
+
+    config NINA_HOST_PORT
+        int "NINA API Port"
+        default 1889
+        help
+            HTTP port of the ninaAPI Advanced API plugin.
+
+    config NINA_POLL_INTERVAL_S
+        int "NINA image poll interval (seconds)"
+        default 300
+        help
+            How often to fetch the latest image from NINA (default: 5 minutes).
+
+endmenu
