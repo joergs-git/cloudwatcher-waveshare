@@ -8,6 +8,9 @@ Native touch display for the AAG CloudWatcher Solo weather station, built on the
 
 A standalone observatory weather monitor that runs on bare metal (no Linux, no OS overhead). Polls an AAG CloudWatcher Solo, a N.I.N.A. imaging session, and an AstroShell dome controller over your local network, then renders everything on a 4-inch 720x720 IPS touchscreen in real time. Designed for remote observatory dashboards where you need a quick glance at conditions from across the room.
 
+![Live Shot of local installation data](waveshare-photo.jpg)
+
+
 ## Features at a Glance
 
 ### 4 Touch Screens (swipe or tap to navigate)
