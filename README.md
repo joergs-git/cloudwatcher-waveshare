@@ -1,6 +1,6 @@
-# CloudWatcher Waveshare Display
+# CloudWatcher and AstroShell Waveshare Display
 
-Native touch display for the AAG CloudWatcher Solo weather station, built on the Waveshare ESP32-P4 WiFi6 Touch LCD 4B (720x720).
+Native touch display for the AAG CloudWatcher Solo weather station and NINA and Domeshell Status, built on the Waveshare ESP32-P4 WiFi6 Touch LCD 4B (720x720).
 
 ![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v5.4-blue) ![Target](https://img.shields.io/badge/target-ESP32--P4-green) ![LVGL](https://img.shields.io/badge/LVGL-9.1-orange) ![Version](https://img.shields.io/badge/version-0.4.2-brightgreen)
 
