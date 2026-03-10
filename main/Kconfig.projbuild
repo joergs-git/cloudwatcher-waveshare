@@ -76,4 +76,38 @@ menu "NINA Configuration"
         help
             How often to fetch the latest image and dome status from NINA (default: 2 minutes).
 
+    config DOME_CLOSE_CMD
+        string "Dome Close All command path"
+        default "/?$1$3"
+        help
+            HTTP GET path sent to AstroShell to close all shutters.
+
+    config DOME_OPEN_CMD
+        string "Dome Open All command path"
+        default "/?$2$4"
+        help
+            HTTP GET path sent to AstroShell to open all shutters.
+
+endmenu
+
+menu "Pushover Notifications"
+
+    config PUSHOVER_ENABLED
+        bool "Enable Pushover notifications"
+        default y
+        help
+            Send Pushover push notifications for dome open/close actions.
+
+    config PUSHOVER_API_TOKEN
+        string "Pushover API Token"
+        default "REPLACE_WITH_TOKEN"
+        help
+            Pushover application API token. Do not commit real values to git.
+
+    config PUSHOVER_USER_KEY
+        string "Pushover User Key"
+        default "REPLACE_WITH_USER_KEY"
+        help
+            Pushover user/group key. Do not commit real values to git.
+
 endmenu

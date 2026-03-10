@@ -61,4 +61,13 @@ esp_err_t nina_fetch_image(nina_image_data_t *out);
 // Returns ESP_OK on success, ESP_FAIL if unreachable
 esp_err_t nina_fetch_dome_status(nina_dome_status_t *out);
 
+// Send dome open or close command to AstroShell controller
+// is_open: true = open all shutters, false = close all shutters
+// Returns ESP_OK if the HTTP request was sent successfully
+esp_err_t dome_send_command(bool is_open);
+
+// Send a Pushover push notification (requires valid config)
+// Returns ESP_OK on success
+esp_err_t pushover_send(const char *title, const char *message);
+
 #endif // NINA_CLIENT_H

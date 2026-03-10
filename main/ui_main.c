@@ -1,11 +1,12 @@
 // LVGL UI manager - screen management, swipe navigation, and data updates
-// v0.4.4
+// v0.5.0
 
 #include "ui_main.h"
 #include "ui_home.h"
 #include "ui_nina.h"
 #include "ui_dashboard.h"
 #include "ui_charts.h"
+#include "ui_dome.h"
 
 #include "esp_log.h"
 #include "bsp/esp-bsp.h"
@@ -18,6 +19,7 @@ static lv_obj_t *scr_home = NULL;
 static lv_obj_t *scr_nina = NULL;
 static lv_obj_t *scr_dashboard = NULL;
 static lv_obj_t *scr_charts = NULL;
+static lv_obj_t *scr_dome = NULL;
 static ui_screen_t current_screen = UI_SCREEN_HOME;
 
 // Bottom navigation bar widgets (shared across screens)
@@ -41,7 +43,7 @@ static void navigate_to(ui_screen_t target)
         : LV_SCR_LOAD_ANIM_MOVE_RIGHT;
 
     current_screen = target;
-    lv_obj_t *target_screens[] = {scr_home, scr_nina, scr_dashboard, scr_charts};
+    lv_obj_t *target_screens[] = {scr_home, scr_nina, scr_dashboard, scr_charts, scr_dome};
     lv_scr_load_anim(target_screens[target], anim, 300, 0, false);
 }
 
@@ -83,6 +85,7 @@ static const struct {
     {"NINA",    UI_SCREEN_NINA},
     {"Details", UI_SCREEN_DASHBOARD},
     {"Charts",  UI_SCREEN_CHARTS},
+    {"Dome",    UI_SCREEN_DOME},
 };
 #define NAV_BTN_COUNT (sizeof(nav_buttons) / sizeof(nav_buttons[0]))
 
@@ -102,7 +105,7 @@ static lv_obj_t *create_nav_bar(lv_obj_t *parent)
     // Create navigation buttons
     for (int i = 0; i < (int)NAV_BTN_COUNT; i++) {
         lv_obj_t *btn = lv_btn_create(bar);
-        lv_obj_set_size(btn, 100, 36);
+        lv_obj_set_size(btn, 85, 36);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x16213e), 0);
         lv_obj_set_style_radius(btn, 8, 0);
         lv_obj_t *lbl = lv_label_create(btn);
@@ -213,6 +216,13 @@ esp_err_t ui_init(void)
         create_nav_bar(scr_charts);
         lv_obj_add_event_cb(scr_charts, swipe_event_cb, LV_EVENT_GESTURE, NULL);
 
+        // Create dome control screen
+        scr_dome = lv_obj_create(NULL);
+        lv_obj_set_style_bg_color(scr_dome, lv_color_hex(0x0a0a1a), 0);
+        ui_dome_create(scr_dome);
+        create_nav_bar(scr_dome);
+        lv_obj_add_event_cb(scr_dome, swipe_event_cb, LV_EVENT_GESTURE, NULL);
+
         // Store references to shared widgets from the home nav bar
         // WiFi icon is child index NAV_BTN_COUNT (after all buttons)
         lbl_wifi_status = lv_obj_get_child(nav0, NAV_BTN_COUNT);
@@ -300,6 +310,7 @@ void ui_update_dome_status(const nina_dome_status_t *dome)
 
     if (bsp_display_lock(100)) {
         ui_home_update_dome(dome);
+        ui_dome_update(dome);
         bsp_display_unlock();
     }
 }
@@ -318,6 +329,22 @@ void ui_update_nina_paused(bool paused)
 {
     if (bsp_display_lock(100)) {
         ui_nina_set_paused(paused);
+        bsp_display_unlock();
+    }
+}
+
+void ui_navigate_to_screen(ui_screen_t screen)
+{
+    // Callable from UI event handlers (LVGL lock already held)
+    on_manual_navigate(screen);
+}
+
+void ui_update_dome_control(const nina_dome_status_t *dome)
+{
+    if (!dome) return;
+
+    if (bsp_display_lock(100)) {
+        ui_dome_update(dome);
         bsp_display_unlock();
     }
 }

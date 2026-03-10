@@ -10,6 +10,7 @@ idf_component_register(
         "ui_nina.c"
         "ui_dashboard.c"
         "ui_charts.c"
+        "ui_dome.c"
         "font_montserrat_80.c"
     INCLUDE_DIRS
         "."
@@ -25,4 +26,5 @@ idf_component_register(
         json
         esp_driver_jpeg
         esp_jpeg
+        esp-tls
 )

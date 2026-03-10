@@ -11,6 +11,7 @@ typedef enum {
     UI_SCREEN_NINA,
     UI_SCREEN_DASHBOARD,
     UI_SCREEN_CHARTS,
+    UI_SCREEN_DOME,
     UI_SCREEN_COUNT
 } ui_screen_t;
 
@@ -46,5 +47,8 @@ void ui_set_nina_session_active(bool active);
 
 // Show or hide the "Paused" indicator on the NINA screen (thread-safe via LVGL lock)
 void ui_update_nina_paused(bool paused);
+
+// Navigate to a specific screen (callable from any UI module, requires LVGL lock held)
+void ui_navigate_to_screen(ui_screen_t screen);
 
 #endif // UI_MAIN_H

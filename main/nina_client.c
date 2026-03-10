@@ -1,7 +1,8 @@
 // NINA Advanced API client - fetches latest image + metadata
 // Connects to ninaAPI plugin (by Christian Palm) running on the imaging PC
 // Uses software JPEG decoder (TJPGD) with auto-scaling to fit the 720x670 display
-// v0.4.2
+// Also handles AstroShell dome commands and Pushover notifications
+// v0.5.0
 
 #include "nina_client.h"
 
@@ -11,6 +12,7 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "cJSON.h"
 #include "jpeg_decoder.h"
@@ -396,4 +398,82 @@ esp_err_t nina_fetch_dome_status(nina_dome_status_t *out)
     out->valid = true;
 
     return ESP_OK;
+}
+
+esp_err_t dome_send_command(bool is_open)
+{
+    // Build the command URL using configurable paths from Kconfig
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d%s",
+             CONFIG_DOME_CONTROLLER_IP, CONFIG_DOME_CONTROLLER_PORT,
+             is_open ? CONFIG_DOME_OPEN_CMD : CONFIG_DOME_CLOSE_CMD);
+
+    ESP_LOGI(TAG, "Sending dome %s command: %s", is_open ? "OPEN" : "CLOSE", url);
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .timeout_ms = 10000,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) return ESP_FAIL;
+
+    esp_err_t err = esp_http_client_perform(client);
+    int status = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Dome command failed: %s", esp_err_to_name(err));
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Dome command sent, HTTP status=%d", status);
+    return ESP_OK;
+}
+
+esp_err_t pushover_send(const char *title, const char *message)
+{
+#ifdef CONFIG_PUSHOVER_ENABLED
+    // Skip if placeholder credentials are still configured
+    if (strcmp(CONFIG_PUSHOVER_API_TOKEN, "REPLACE_WITH_TOKEN") == 0 ||
+        strcmp(CONFIG_PUSHOVER_USER_KEY, "REPLACE_WITH_USER_KEY") == 0) {
+        ESP_LOGW(TAG, "Pushover credentials not configured, skipping notification");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Build URL-encoded POST body
+    char post_data[512];
+    snprintf(post_data, sizeof(post_data),
+             "token=%s&user=%s&title=%s&message=%s&priority=1",
+             CONFIG_PUSHOVER_API_TOKEN, CONFIG_PUSHOVER_USER_KEY,
+             title, message);
+
+    esp_http_client_config_t config = {
+        .url = "https://api.pushover.net/1/messages.json",
+        .timeout_ms = 10000,
+        .crt_bundle_attach = esp_crt_bundle_attach,  // use ESP-IDF CA bundle for TLS
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) return ESP_FAIL;
+
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+    esp_err_t err = esp_http_client_perform(client);
+    int status = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK || status != 200) {
+        ESP_LOGW(TAG, "Pushover failed: err=%s status=%d", esp_err_to_name(err), status);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Pushover notification sent: %s", message);
+    return ESP_OK;
+#else
+    ESP_LOGI(TAG, "Pushover disabled in config");
+    return ESP_OK;
+#endif
 }

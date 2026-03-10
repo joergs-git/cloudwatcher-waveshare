@@ -1,7 +1,8 @@
 // Home screen - primary overview with big status text and sky/ambient temp chart
-// v0.4.3
+// v0.5.0
 
 #include "ui_home.h"
+#include "ui_main.h"
 #include "cloudwatcher_client.h"
 
 #include <stdio.h>
@@ -106,6 +107,14 @@ static lv_color_t rain_state_color(int rain_val)
     if (rain_val > CW_RAIN_DRY) return COLOR_GREEN;
     if (rain_val > CW_RAIN_WET) return COLOR_YELLOW;
     return COLOR_RED;
+}
+
+// Navigate to Dome Control screen when dome banner is tapped
+static void dome_banner_tap_cb(lv_event_t *e)
+{
+    (void)e;
+    ESP_LOGI(TAG, "Dome banner tapped, navigating to Dome Control");
+    ui_navigate_to_screen(UI_SCREEN_DOME);
 }
 
 lv_obj_t *ui_home_create(lv_obj_t *parent)
@@ -225,6 +234,10 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(lbl_dome, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(lbl_dome, COLOR_TEXT_DIM, 0);
     lv_obj_center(lbl_dome);
+
+    // Make dome banner tappable - navigates to Dome Control screen
+    lv_obj_add_flag(dome_banner, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(dome_banner, dome_banner_tap_cb, LV_EVENT_CLICKED, NULL);
 
     ESP_LOGI(TAG, "Home screen created");
     return parent;
