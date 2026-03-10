@@ -10,6 +10,7 @@ idf_component_register(
         "ui_nina.c"
         "ui_dashboard.c"
         "ui_charts.c"
+        "font_montserrat_80.c"
     INCLUDE_DIRS
         "."
     REQUIRES

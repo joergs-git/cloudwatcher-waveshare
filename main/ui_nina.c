@@ -1,7 +1,7 @@
 // NINA image display screen - shows latest captured frame with metadata overlay
 // Displays the most recent sub-exposure from N.I.N.A. with target info,
 // exposure parameters, and image statistics as a semi-transparent overlay
-// v0.4.4
+// v0.4.5
 
 #include "ui_nina.h"
 #include "ui_main.h"
@@ -40,6 +40,15 @@ static lv_obj_t *lbl_stats = NULL;
 
 // Refresh button
 static lv_obj_t *btn_refresh = NULL;
+
+// Large image count overlay (bottom-right, same style as home clock)
+static lv_obj_t *lbl_image_count = NULL;
+
+// "Paused" indicator overlay (top-left, shown when sequence is not actively capturing)
+static lv_obj_t *lbl_paused = NULL;
+
+// Custom 120px Montserrat font for large overlays (digits + colon only)
+extern const lv_font_t font_montserrat_80;
 
 // Refresh button callback
 static void refresh_btn_cb(lv_event_t *e)
@@ -107,6 +116,24 @@ lv_obj_t *ui_nina_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(lbl_stats, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lbl_stats, COLOR_TEXT_LIGHT, 0);
     lv_obj_set_pos(lbl_stats, 14, 60);
+
+    // Large image count overlay (bottom-right, semi-transparent like home clock)
+    lbl_image_count = lv_label_create(parent);
+    lv_label_set_text(lbl_image_count, "");
+    lv_obj_set_style_text_font(lbl_image_count, &font_montserrat_80, 0);
+    lv_obj_set_style_text_color(lbl_image_count, COLOR_TEXT_WHITE, 0);
+    lv_obj_set_style_text_opa(lbl_image_count, LV_OPA_40, 0);
+    lv_obj_align(lbl_image_count, LV_ALIGN_BOTTOM_RIGHT, -20, -100);
+    lv_obj_add_flag(lbl_image_count, LV_OBJ_FLAG_HIDDEN);
+
+    // "Inactive Session" indicator - top-left, semi-transparent, shown when not actively capturing
+    lbl_paused = lv_label_create(parent);
+    lv_label_set_text(lbl_paused, LV_SYMBOL_PAUSE "  Inactive Session");
+    lv_obj_set_style_text_font(lbl_paused, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(lbl_paused, lv_color_hex(0xffaa00), 0);
+    lv_obj_set_style_text_opa(lbl_paused, LV_OPA_70, 0);
+    lv_obj_align(lbl_paused, LV_ALIGN_TOP_LEFT, 14, 10);
+    lv_obj_add_flag(lbl_paused, LV_OBJ_FLAG_HIDDEN);
 
     // Refresh button - top right corner
     btn_refresh = lv_btn_create(parent);
@@ -178,8 +205,10 @@ void ui_nina_update(const nina_image_data_t *data)
         lv_obj_set_pos(overlay, 0, overlay_y);
         lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
 
-        // Ensure overlay and button render on top
+        // Ensure overlay, count, paused indicator, and button render on top
         lv_obj_move_foreground(overlay);
+        lv_obj_move_foreground(lbl_image_count);
+        lv_obj_move_foreground(lbl_paused);
         lv_obj_move_foreground(btn_refresh);
 
         ESP_LOGI(TAG, "Display: %lux%lu cropped to %lux%lu (centered)",
@@ -189,6 +218,14 @@ void ui_nina_update(const nina_image_data_t *data)
 
     // Update overlay text
     char buf[256];
+
+    // Update large image count overlay
+    if (data->meta.image_count > 0) {
+        char cnt_buf[16];
+        snprintf(cnt_buf, sizeof(cnt_buf), "%d", data->meta.image_count);
+        lv_label_set_text(lbl_image_count, cnt_buf);
+        lv_obj_clear_flag(lbl_image_count, LV_OBJ_FLAG_HIDDEN);
+    }
 
     if (data->meta.valid) {
         lv_label_set_text(lbl_target,
@@ -232,4 +269,17 @@ void ui_nina_set_status(const char *message)
     lv_obj_clear_flag(status_label, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(canvas, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(lbl_image_count, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(lbl_paused, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ui_nina_set_paused(bool paused)
+{
+    if (!lbl_paused) return;
+
+    if (paused) {
+        lv_obj_clear_flag(lbl_paused, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(lbl_paused, LV_OBJ_FLAG_HIDDEN);
+    }
 }

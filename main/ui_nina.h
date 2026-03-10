@@ -1,5 +1,5 @@
 // NINA image display screen - shows latest captured frame with metadata overlay
-// v0.4.2
+// v0.4.3
 
 #ifndef UI_NINA_H
 #define UI_NINA_H
@@ -15,5 +15,8 @@ void ui_nina_update(const nina_image_data_t *data);
 
 // Show a status message (e.g. "NINA offline", "No active session")
 void ui_nina_set_status(const char *message);
+
+// Show or hide the "Paused" indicator when NINA has a last image but no active sequence
+void ui_nina_set_paused(bool paused);
 
 #endif // UI_NINA_H

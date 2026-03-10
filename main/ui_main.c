@@ -1,5 +1,5 @@
 // LVGL UI manager - screen management, swipe navigation, and data updates
-// v0.4.2
+// v0.4.4
 
 #include "ui_main.h"
 #include "ui_home.h"
@@ -24,6 +24,13 @@ static ui_screen_t current_screen = UI_SCREEN_HOME;
 static lv_obj_t *lbl_countdown = NULL;
 static lv_obj_t *lbl_wifi_status = NULL;
 
+// Auto-swap state: cycles between Home and NINA every 120s when NINA session is active
+#define AUTO_SWAP_INTERVAL_S 120
+static bool nina_session_active = false;    // set from nina_poll_task
+static int  auto_swap_counter = 0;          // counts up each second
+static bool manual_override = false;        // true if user navigated to Dashboard/Charts
+static lv_timer_t *auto_swap_timer = NULL;
+
 // Navigate to a specific screen with appropriate animation direction
 static void navigate_to(ui_screen_t target)
 {
@@ -38,11 +45,21 @@ static void navigate_to(ui_screen_t target)
     lv_scr_load_anim(target_screens[target], anim, 300, 0, false);
 }
 
+// Handle manual navigation: reset auto-swap counter and track override state
+static void on_manual_navigate(ui_screen_t target)
+{
+    auto_swap_counter = 0;
+    // If user navigates to Dashboard or Charts, pause auto-swap
+    // If user returns to Home or NINA, resume auto-swap
+    manual_override = (target != UI_SCREEN_HOME && target != UI_SCREEN_NINA);
+    navigate_to(target);
+}
+
 // Navigation button callback
 static void nav_btn_event_cb(lv_event_t *e)
 {
     ui_screen_t target = (ui_screen_t)(intptr_t)lv_event_get_user_data(e);
-    navigate_to(target);
+    on_manual_navigate(target);
 }
 
 // Swipe gesture callback - detect horizontal swipes to switch screens
@@ -51,9 +68,9 @@ static void swipe_event_cb(lv_event_t *e)
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
 
     if (dir == LV_DIR_LEFT && current_screen < UI_SCREEN_COUNT - 1) {
-        navigate_to((ui_screen_t)(current_screen + 1));
+        on_manual_navigate((ui_screen_t)(current_screen + 1));
     } else if (dir == LV_DIR_RIGHT && current_screen > 0) {
-        navigate_to((ui_screen_t)(current_screen - 1));
+        on_manual_navigate((ui_screen_t)(current_screen - 1));
     }
 }
 
@@ -109,6 +126,47 @@ static lv_obj_t *create_nav_bar(lv_obj_t *parent)
     return bar;
 }
 
+// Auto-swap timer callback - fires every 1s, swaps Home<->NINA after 120s
+static void auto_swap_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+
+    if (!nina_session_active || manual_override) {
+        auto_swap_counter = 0;
+        return;
+    }
+
+    auto_swap_counter++;
+    if (auto_swap_counter >= AUTO_SWAP_INTERVAL_S) {
+        auto_swap_counter = 0;
+        // Toggle between Home and NINA
+        if (current_screen == UI_SCREEN_HOME) {
+            navigate_to(UI_SCREEN_NINA);
+        } else {
+            navigate_to(UI_SCREEN_HOME);
+        }
+    }
+}
+
+void ui_set_nina_session_active(bool active)
+{
+    bool was_active = nina_session_active;
+    nina_session_active = active;
+
+    // When session ends, return to Home screen if currently on NINA
+    if (was_active && !active && current_screen == UI_SCREEN_NINA && !manual_override) {
+        if (bsp_display_lock(100)) {
+            navigate_to(UI_SCREEN_HOME);
+            bsp_display_unlock();
+        }
+    }
+
+    // Reset counter when state changes
+    if (was_active != active) {
+        auto_swap_counter = 0;
+    }
+}
+
 esp_err_t ui_init(void)
 {
     ESP_LOGI(TAG, "Initializing UI...");
@@ -162,6 +220,9 @@ esp_err_t ui_init(void)
 
         // Load home as the default screen
         lv_scr_load(scr_home);
+
+        // Create auto-swap timer (1s tick, handles Home<->NINA cycling)
+        auto_swap_timer = lv_timer_create(auto_swap_timer_cb, 1000, NULL);
 
         bsp_display_unlock();
     } else {
@@ -249,6 +310,14 @@ void ui_update_nina_status(const char *message)
 
     if (bsp_display_lock(100)) {
         ui_nina_set_status(message);
+        bsp_display_unlock();
+    }
+}
+
+void ui_update_nina_paused(bool paused)
+{
+    if (bsp_display_lock(100)) {
+        ui_nina_set_paused(paused);
         bsp_display_unlock();
     }
 }

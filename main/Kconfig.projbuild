@@ -48,7 +48,7 @@ menu "NINA Configuration"
 
     config NINA_HOST_PORT
         int "NINA API Port"
-        default 1889
+        default 1888
         help
             HTTP port of the ninaAPI Advanced API plugin.
 

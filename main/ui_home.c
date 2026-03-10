@@ -1,5 +1,5 @@
 // Home screen - primary overview with big status text and sky/ambient temp chart
-// v0.4.2
+// v0.4.3
 
 #include "ui_home.h"
 #include "cloudwatcher_client.h"
@@ -11,6 +11,9 @@
 #include <float.h>
 #include <time.h>
 #include "esp_log.h"
+
+// Custom 80px Montserrat font for clock overlay (digits + colon only)
+extern const lv_font_t font_montserrat_80;
 
 static const char *TAG = "ui_home";
 
@@ -199,13 +202,13 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(leg_amb, COLOR_AMB_LINE, 0);
     lv_obj_align(leg_amb, LV_ALIGN_TOP_LEFT, CHART_X_OFFSET + 150, CHART_Y_TOP + CHART_HEIGHT + 5);
 
-    // Time overlay label (white, large, inside the chart widget, top-center)
+    // Time overlay label (white, 80px, 40% opaque / 60% transparent, inside chart)
     lbl_time_overlay = lv_label_create(chart);
     lv_label_set_text(lbl_time_overlay, "--:--");
-    lv_obj_set_style_text_font(lbl_time_overlay, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(lbl_time_overlay, &font_montserrat_80, 0);
     lv_obj_set_style_text_color(lbl_time_overlay, lv_color_white(), 0);
-    lv_obj_set_style_text_opa(lbl_time_overlay, LV_OPA_80, 0);
-    lv_obj_align(lbl_time_overlay, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_set_style_text_opa(lbl_time_overlay, LV_OPA_40, 0);
+    lv_obj_align(lbl_time_overlay, LV_ALIGN_TOP_MID, 0, 5);
 
     // Dome status banner (styled box like dashboard safe/unsafe banner)
     dome_banner = lv_obj_create(parent);

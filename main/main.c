@@ -1,6 +1,6 @@
 // CloudWatcher Waveshare Display - Main Entry Point
 // Displays AAG CloudWatcher Solo sensor data on Waveshare ESP32-P4 Touch LCD 4B
-// v0.4.2
+// v0.4.4
 
 #include <stdio.h>
 #include <string.h>
@@ -111,6 +111,7 @@ static void nina_poll_task(void *arg)
 
     nina_image_data_t image_data;
     nina_dome_status_t dome_status;
+    int prev_image_count = -1;  // track previous count to detect active shooting
 
     while (1) {
         if (wifi_manager_is_connected()) {
@@ -118,10 +119,28 @@ static void nina_poll_task(void *arg)
             esp_err_t err = nina_fetch_image(&image_data);
             if (err == ESP_OK) {
                 ui_update_nina_data(&image_data);
+                // Only auto-swap when image count is increasing (actively shooting)
+                int cur_count = image_data.meta.image_count;
+                if (prev_image_count >= 0 && cur_count > prev_image_count) {
+                    // Actively capturing new subs
+                    ui_set_nina_session_active(true);
+                    ui_update_nina_paused(false);
+                } else if (prev_image_count >= 0 && cur_count == prev_image_count) {
+                    // Count unchanged - sequence paused or finished, show last image with "Paused"
+                    ui_set_nina_session_active(false);
+                    ui_update_nina_paused(true);
+                }
+                prev_image_count = cur_count;
             } else if (err == ESP_ERR_NOT_FOUND) {
                 ui_update_nina_status("No active session");
+                ui_set_nina_session_active(false);
+                ui_update_nina_paused(false);
+                prev_image_count = -1;
             } else {
                 ui_update_nina_status("NINA offline");
+                ui_set_nina_session_active(false);
+                ui_update_nina_paused(false);
+                prev_image_count = -1;
             }
 
             // Fetch dome status for home screen
@@ -147,7 +166,7 @@ static void nina_poll_task(void *arg)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "CloudWatcher Waveshare Display v0.4.2");
+    ESP_LOGI(TAG, "CloudWatcher Waveshare Display v0.4.4");
     ESP_LOGI(TAG, "Free heap: %lu, PSRAM: %lu",
              (unsigned long)esp_get_free_heap_size(),
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));

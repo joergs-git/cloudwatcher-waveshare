@@ -41,4 +41,10 @@ void ui_update_dome_status(const nina_dome_status_t *dome);
 // Request an immediate NINA image refresh (called from UI tap handler)
 void nina_request_refresh(void);
 
+// Set NINA session active state (drives auto-swap between Home and NINA screens)
+void ui_set_nina_session_active(bool active);
+
+// Show or hide the "Paused" indicator on the NINA screen (thread-safe via LVGL lock)
+void ui_update_nina_paused(bool paused);
+
 #endif // UI_MAIN_H
