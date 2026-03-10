@@ -5,10 +5,13 @@
 #include "wifi_manager.h"
 
 #include <string.h>
+#include <time.h>
+#include <sys/time.h>
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_hosted.h"
+#include "esp_sntp.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -81,6 +84,18 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         esp_event_post(WIFI_MANAGER_EVENT, WIFI_MANAGER_EVENT_CONNECTED,
                        NULL, 0, pdMS_TO_TICKS(100));
+
+        // Initialize NTP time sync (CET/CEST for Wietesch observatory)
+        static bool sntp_initialized = false;
+        if (!sntp_initialized) {
+            setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+            tzset();
+            esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+            esp_sntp_setservername(0, "pool.ntp.org");
+            esp_sntp_init();
+            sntp_initialized = true;
+            ESP_LOGI(TAG, "SNTP time sync started (CET/CEST)");
+        }
     }
 }
 

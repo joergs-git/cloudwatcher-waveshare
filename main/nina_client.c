@@ -1,11 +1,12 @@
 // NINA Advanced API client - fetches latest image + metadata
 // Connects to ninaAPI plugin (by Christian Palm) running on the imaging PC
 // Uses software JPEG decoder (TJPGD) with auto-scaling to fit the 720x670 display
-// v0.4.1
+// v0.4.2
 
 #include "nina_client.h"
 
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include "esp_log.h"
@@ -345,45 +346,54 @@ esp_err_t nina_fetch_dome_status(nina_dome_status_t *out)
 
     memset(out, 0, sizeof(*out));
 
-    char url[256];
-    snprintf(url, sizeof(url), "http://%s:%d/v2/api/equipment/dome/info",
-             CONFIG_NINA_HOST_IP, CONFIG_NINA_DOME_PORT);
+    // Query AstroShell dome controller directly via /?$S
+    // Returns plain text: "OPEN" or "CLOSED"
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d/?$S",
+             CONFIG_DOME_CONTROLLER_IP, CONFIG_DOME_CONTROLLER_PORT);
 
-    cJSON *json = fetch_json(url);
-    if (!json) {
+    esp_http_client_config_t config = {
+        .url = url,
+        .timeout_ms = 5000,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) return ESP_FAIL;
+
+    // Disable redirect following (Arduino returns 303 for commands)
+    esp_http_client_set_redirection(client);
+
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Dome controller unreachable: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
         return ESP_FAIL;
     }
 
-    cJSON *response = cJSON_GetObjectItem(json, "Response");
-    if (!response || !cJSON_IsObject(response)) {
-        cJSON_Delete(json);
+    esp_http_client_fetch_headers(client);
+    char buf[64] = {0};
+    int read_len = esp_http_client_read(client, buf, sizeof(buf) - 1);
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    if (read_len <= 0) {
+        ESP_LOGW(TAG, "Dome controller: empty response");
         return ESP_FAIL;
     }
+    buf[read_len] = '\0';
 
-    // Log raw response keys for debugging
-    char *raw = cJSON_PrintUnformatted(response);
-    if (raw) {
-        ESP_LOGI(TAG, "Dome raw: %.200s", raw);
-        cJSON_free(raw);
-    }
-
-    cJSON *item;
-    if ((item = cJSON_GetObjectItem(response, "Connected")) && cJSON_IsBool(item)) {
-        out->connected = cJSON_IsTrue(item);
-    }
-    if ((item = cJSON_GetObjectItem(response, "ShutterStatus")) && cJSON_IsString(item)) {
-        strncpy(out->shutter_status, item->valuestring, sizeof(out->shutter_status) - 1);
-        out->shutter_open = (strcmp(item->valuestring, "Open") == 0);
-    }
-    if ((item = cJSON_GetObjectItem(response, "AtPark")) && cJSON_IsBool(item)) {
-        out->at_park = cJSON_IsTrue(item);
+    // Trim whitespace/newlines from response
+    int len = strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r' || buf[len - 1] == ' ')) {
+        buf[--len] = '\0';
     }
 
+    ESP_LOGI(TAG, "Dome controller status: '%s'", buf);
+
+    snprintf(out->shutter_status, sizeof(out->shutter_status), "%s", buf);
+    out->shutter_open = (strcasecmp(buf, "OPEN") == 0);
+    out->connected = true;
     out->valid = true;
 
-    ESP_LOGI(TAG, "Dome: connected=%d shutter='%s' open=%d parked=%d",
-             out->connected, out->shutter_status, out->shutter_open, out->at_park);
-
-    cJSON_Delete(json);
     return ESP_OK;
 }

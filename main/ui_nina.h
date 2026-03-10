@@ -1,5 +1,5 @@
 // NINA image display screen - shows latest captured frame with metadata overlay
-// v0.4.0
+// v0.4.2
 
 #ifndef UI_NINA_H
 #define UI_NINA_H

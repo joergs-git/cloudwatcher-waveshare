@@ -1,6 +1,6 @@
 // NINA Advanced API client - fetches latest image + metadata
 // Uses ESP32-P4 hardware JPEG decoder for fast image decoding
-// v0.4.0
+// v0.4.2
 
 #ifndef NINA_CLIENT_H
 #define NINA_CLIENT_H

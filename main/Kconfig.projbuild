@@ -58,10 +58,22 @@ menu "NINA Configuration"
         help
             HTTP port of the NINA instance controlling the dome (may differ from image instance).
 
+    config DOME_CONTROLLER_IP
+        string "Dome Controller IP Address"
+        default "192.168.1.177"
+        help
+            IP address of the AstroShell dome Arduino controller (direct ASCOM query).
+
+    config DOME_CONTROLLER_PORT
+        int "Dome Controller Port"
+        default 80
+        help
+            HTTP port of the AstroShell dome Arduino controller.
+
     config NINA_POLL_INTERVAL_S
         int "NINA image poll interval (seconds)"
-        default 300
+        default 120
         help
-            How often to fetch the latest image from NINA (default: 5 minutes).
+            How often to fetch the latest image and dome status from NINA (default: 2 minutes).
 
 endmenu

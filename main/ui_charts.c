@@ -1,6 +1,6 @@
 // Charts screen - 24h historical graphs with tabbed navigation
 // Displays today (solid) + yesterday (dimmer) line series
-// v0.4.0
+// v0.4.2
 
 #include "ui_charts.h"
 #include "cloudwatcher_client.h"
@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <float.h>
+#include <time.h>
 #include "esp_log.h"
 
 static const char *TAG = "ui_charts";
@@ -42,6 +43,9 @@ static int active_tab = 0;
 static lv_obj_t         *chart = NULL;
 static lv_chart_series_t *ser_today = NULL;
 static lv_chart_series_t *ser_yesterday = NULL;
+
+// Time overlay on chart (white, top area)
+static lv_obj_t *lbl_time_overlay = NULL;
 
 // Summary labels below the chart
 static lv_obj_t *lbl_current = NULL;
@@ -329,6 +333,13 @@ lv_obj_t *ui_charts_create(lv_obj_t *parent)
     // Hide point markers for cleaner lines
     lv_obj_set_style_size(chart, 0, 0, LV_PART_INDICATOR);
 
+    // Time overlay label (white, top-right area of chart)
+    lbl_time_overlay = lv_label_create(parent);
+    lv_label_set_text(lbl_time_overlay, "");
+    lv_obj_set_style_text_font(lbl_time_overlay, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(lbl_time_overlay, lv_color_white(), 0);
+    lv_obj_align(lbl_time_overlay, LV_ALIGN_TOP_RIGHT, -CHART_X_OFFSET - 10, CHART_Y_TOP + 6);
+
     // Summary labels
     lbl_current = lv_label_create(parent);
     lv_label_set_text(lbl_current, "Waiting for data...");
@@ -355,4 +366,16 @@ void ui_charts_update(const cw_graph_data_t graphs[CW_GRAPH_SERIES_COUNT])
     has_graph_data = true;
 
     render_active_chart();
+}
+
+void ui_charts_update_time(void)
+{
+    if (!lbl_time_overlay) return;
+    time_t now = time(NULL);
+    struct tm *ti = localtime(&now);
+    if (ti->tm_year > (2024 - 1900)) {
+        char tbuf[8];
+        snprintf(tbuf, sizeof(tbuf), "%02d:%02d", ti->tm_hour, ti->tm_min);
+        lv_label_set_text(lbl_time_overlay, tbuf);
+    }
 }

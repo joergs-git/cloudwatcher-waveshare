@@ -1,5 +1,5 @@
 // LVGL UI manager - screen management, swipe navigation, and data updates
-// v0.4.0
+// v0.4.2
 
 #include "ui_main.h"
 #include "ui_home.h"
@@ -180,6 +180,7 @@ void ui_update_current_data(const cw_current_data_t *data)
     if (bsp_display_lock(100)) {
         ui_home_update(data);
         ui_dashboard_update(data);
+        ui_charts_update_time();
         bsp_display_unlock();
     }
 }

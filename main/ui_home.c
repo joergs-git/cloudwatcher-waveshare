@@ -1,13 +1,15 @@
 // Home screen - primary overview with big status text and sky/ambient temp chart
-// v0.2.0
+// v0.4.2
 
 #include "ui_home.h"
 #include "cloudwatcher_client.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <math.h>
 #include <float.h>
+#include <time.h>
 #include "esp_log.h"
 
 static const char *TAG = "ui_home";
@@ -27,8 +29,12 @@ static lv_obj_t *lbl_cloud_state = NULL;
 static lv_obj_t *lbl_rain_state = NULL;
 static lv_obj_t *lbl_safe_banner = NULL;
 
-// Dome status label
+// Dome status banner (styled box like dashboard safe/unsafe)
+static lv_obj_t *dome_banner = NULL;
 static lv_obj_t *lbl_dome = NULL;
+
+// Time overlay on home chart
+static lv_obj_t *lbl_time_overlay = NULL;
 
 // Value labels below the big status
 static lv_obj_t *lbl_sky_temp = NULL;
@@ -193,12 +199,29 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(leg_amb, COLOR_AMB_LINE, 0);
     lv_obj_align(leg_amb, LV_ALIGN_TOP_LEFT, CHART_X_OFFSET + 150, CHART_Y_TOP + CHART_HEIGHT + 5);
 
-    // Dome status label (big, centered below chart legend)
-    lbl_dome = lv_label_create(parent);
+    // Time overlay label (white, large, inside the chart widget, top-center)
+    lbl_time_overlay = lv_label_create(chart);
+    lv_label_set_text(lbl_time_overlay, "--:--");
+    lv_obj_set_style_text_font(lbl_time_overlay, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(lbl_time_overlay, lv_color_white(), 0);
+    lv_obj_set_style_text_opa(lbl_time_overlay, LV_OPA_80, 0);
+    lv_obj_align(lbl_time_overlay, LV_ALIGN_TOP_MID, 0, 15);
+
+    // Dome status banner (styled box like dashboard safe/unsafe banner)
+    dome_banner = lv_obj_create(parent);
+    lv_obj_set_size(dome_banner, 610, 50);
+    lv_obj_align(dome_banner, LV_ALIGN_TOP_MID, 0, CHART_Y_TOP + CHART_HEIGHT + 20);
+    lv_obj_set_style_bg_color(dome_banner, lv_color_hex(0x1a1a2e), 0);
+    lv_obj_set_style_radius(dome_banner, 12, 0);
+    lv_obj_set_style_border_width(dome_banner, 2, 0);
+    lv_obj_set_style_border_color(dome_banner, COLOR_TEXT_DIM, 0);
+    lv_obj_clear_flag(dome_banner, LV_OBJ_FLAG_SCROLLABLE);
+
+    lbl_dome = lv_label_create(dome_banner);
     lv_label_set_text(lbl_dome, "");
-    lv_obj_set_style_text_font(lbl_dome, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl_dome, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(lbl_dome, COLOR_TEXT_DIM, 0);
-    lv_obj_align(lbl_dome, LV_ALIGN_TOP_MID, 0, CHART_Y_TOP + CHART_HEIGHT + 25);
+    lv_obj_center(lbl_dome);
 
     ESP_LOGI(TAG, "Home screen created");
     return parent;
@@ -233,6 +256,19 @@ void ui_home_update(const cw_current_data_t *data)
 
     snprintf(buf, sizeof(buf), "Dew: %.1f C", data->dew_point);
     lv_label_set_text(lbl_dew_point, buf);
+
+    // Update time overlay on chart from system clock (NTP synced)
+    if (lbl_time_overlay) {
+        time_t now = time(NULL);
+        struct tm *ti = localtime(&now);
+        char tbuf[8];
+        if (ti->tm_year > (2020 - 1900)) {
+            snprintf(tbuf, sizeof(tbuf), "%02d:%02d", ti->tm_hour, ti->tm_min);
+        } else {
+            snprintf(tbuf, sizeof(tbuf), "--:--");
+        }
+        lv_label_set_text(lbl_time_overlay, tbuf);
+    }
 }
 
 void ui_home_update_graph(const cw_graph_data_t graphs[CW_GRAPH_SERIES_COUNT])
@@ -293,25 +329,28 @@ void ui_home_update_dome(const nina_dome_status_t *dome)
     if (!dome->valid) {
         lv_label_set_text(lbl_dome, "DOME --");
         lv_obj_set_style_text_color(lbl_dome, COLOR_TEXT_DIM, 0);
+        lv_obj_set_style_border_color(dome_banner, COLOR_TEXT_DIM, 0);
+        lv_obj_set_style_bg_color(dome_banner, lv_color_hex(0x1a1a2e), 0);
         return;
     }
 
-    // Show shutter status regardless of connected flag
-    if (dome->shutter_status[0]) {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "DOME %s", dome->shutter_status);
+    ESP_LOGI(TAG, "Dome status: '%s'", dome->shutter_status);
 
-        // Red when open (exposed to weather), green when closed (safe), yellow for transitional
-        if (dome->shutter_open) {
-            lv_obj_set_style_text_color(lbl_dome, COLOR_RED, 0);
-        } else if (strcmp(dome->shutter_status, "Closed") == 0) {
-            lv_obj_set_style_text_color(lbl_dome, COLOR_GREEN, 0);
-        } else {
-            lv_obj_set_style_text_color(lbl_dome, COLOR_YELLOW, 0);
-        }
-        lv_label_set_text(lbl_dome, buf);
+    // AstroShell returns "OPEN" or "CLOSED" — anything else is unexpected
+    if (strcasecmp(dome->shutter_status, "CLOSED") == 0) {
+        lv_label_set_text(lbl_dome, "CLOSED");
+        lv_obj_set_style_text_color(lbl_dome, COLOR_GREEN, 0);
+        lv_obj_set_style_border_color(dome_banner, COLOR_GREEN, 0);
+        lv_obj_set_style_bg_color(dome_banner, lv_color_hex(0x0a2a1a), 0);
+    } else if (strcasecmp(dome->shutter_status, "OPEN") == 0) {
+        lv_label_set_text(lbl_dome, "OPEN");
+        lv_obj_set_style_text_color(lbl_dome, COLOR_RED, 0);
+        lv_obj_set_style_border_color(dome_banner, COLOR_RED, 0);
+        lv_obj_set_style_bg_color(dome_banner, lv_color_hex(0x2a0a0a), 0);
     } else {
-        lv_label_set_text(lbl_dome, "DOME N/A");
-        lv_obj_set_style_text_color(lbl_dome, COLOR_TEXT_DIM, 0);
+        lv_label_set_text(lbl_dome, "Domestatus?");
+        lv_obj_set_style_text_color(lbl_dome, COLOR_YELLOW, 0);
+        lv_obj_set_style_border_color(dome_banner, COLOR_YELLOW, 0);
+        lv_obj_set_style_bg_color(dome_banner, lv_color_hex(0x2a2a0a), 0);
     }
 }

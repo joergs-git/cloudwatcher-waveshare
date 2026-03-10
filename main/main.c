@@ -1,6 +1,6 @@
 // CloudWatcher Waveshare Display - Main Entry Point
 // Displays AAG CloudWatcher Solo sensor data on Waveshare ESP32-P4 Touch LCD 4B
-// v0.4.0
+// v0.4.2
 
 #include <stdio.h>
 #include <string.h>
@@ -147,7 +147,7 @@ static void nina_poll_task(void *arg)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "CloudWatcher Waveshare Display v0.4.0");
+    ESP_LOGI(TAG, "CloudWatcher Waveshare Display v0.4.2");
     ESP_LOGI(TAG, "Free heap: %lu, PSRAM: %lu",
              (unsigned long)esp_get_free_heap_size(),
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
