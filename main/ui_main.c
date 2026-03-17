@@ -348,3 +348,13 @@ void ui_update_dome_control(const nina_dome_status_t *dome)
         bsp_display_unlock();
     }
 }
+
+void ui_update_forecast_data(const mb_forecast_data_t *forecast)
+{
+    if (!forecast) return;
+
+    if (bsp_display_lock(500)) {
+        ui_home_update_forecast(forecast);
+        bsp_display_unlock();
+    }
+}

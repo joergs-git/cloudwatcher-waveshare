@@ -38,6 +38,42 @@ menu "CloudWatcher Configuration"
 
 endmenu
 
+menu "Meteoblue Forecast Configuration"
+
+    config MB_API_KEY
+        string "Meteoblue API Key"
+        default "JOHNDOE_API_KEY"
+        help
+            Your Meteoblue Forecast API key. Get one at https://www.meteoblue.com/en/weather-api
+
+    config MB_LATITUDE
+        string "Latitude"
+        default "52.17"
+        help
+            Latitude of your observatory location (decimal degrees).
+
+    config MB_LONGITUDE
+        string "Longitude"
+        default "7.25"
+        help
+            Longitude of your observatory location (decimal degrees).
+
+    config MB_ALTITUDE
+        int "Altitude (meters)"
+        default 40
+        help
+            Altitude of your observatory location in meters above sea level.
+
+    config MB_POLL_INTERVAL_S
+        int "Forecast poll interval (seconds)"
+        default 3600
+        help
+            How often to fetch the Meteoblue cloud cover forecast.
+            Default: 3600 (1 hour). Meteoblue model updates ~every 6h,
+            so polling more often than 30 minutes is wasteful.
+
+endmenu
+
 menu "NINA Configuration"
 
     config NINA_HOST_IP

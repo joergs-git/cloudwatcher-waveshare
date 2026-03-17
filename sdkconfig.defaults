@@ -34,7 +34,7 @@ CONFIG_LWIP_MAX_SOCKETS=8
 # HTTP Client
 CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
 
-# TLS certificate bundle for HTTPS (needed for Pushover API)
+# TLS certificate bundle for HTTPS (Pushover + Meteoblue)
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 

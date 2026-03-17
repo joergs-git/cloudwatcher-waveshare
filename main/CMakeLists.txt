@@ -12,6 +12,7 @@ idf_component_register(
         "ui_charts.c"
         "ui_dome.c"
         "font_montserrat_80.c"
+        "meteoblue_client.c"
     INCLUDE_DIRS
         "."
     REQUIRES

@@ -4,6 +4,7 @@
 #include "esp_err.h"
 #include "cloudwatcher_client.h"
 #include "nina_client.h"
+#include "meteoblue_client.h"
 
 // Screen identifiers (order determines swipe navigation sequence)
 typedef enum {
@@ -38,6 +39,9 @@ void ui_update_nina_status(const char *message);
 
 // Update dome status on home screen (thread-safe via LVGL lock)
 void ui_update_dome_status(const nina_dome_status_t *dome);
+
+// Update home screen with Meteoblue forecast data (thread-safe via LVGL lock)
+void ui_update_forecast_data(const mb_forecast_data_t *forecast);
 
 // Request an immediate NINA image refresh (called from UI tap handler)
 void nina_request_refresh(void);

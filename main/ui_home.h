@@ -4,6 +4,7 @@
 #include "lvgl.h"
 #include "cloudwatcher_client.h"
 #include "nina_client.h"
+#include "meteoblue_client.h"
 
 // Create the home overview screen on the given parent
 lv_obj_t *ui_home_create(lv_obj_t *parent);
@@ -11,8 +12,11 @@ lv_obj_t *ui_home_create(lv_obj_t *parent);
 // Update home screen with current sensor readings
 void ui_home_update(const cw_current_data_t *data);
 
-// Update home screen chart with 24h graph data
+// Update home screen chart with 24h graph data (filtered to past 12h)
 void ui_home_update_graph(const cw_graph_data_t graphs[CW_GRAPH_SERIES_COUNT]);
+
+// Update home screen chart with Meteoblue forecast data (-12h to +12h)
+void ui_home_update_forecast(const mb_forecast_data_t *forecast);
 
 // Update dome status display on home screen
 void ui_home_update_dome(const nina_dome_status_t *dome);

@@ -13,6 +13,7 @@
 #include "wifi_manager.h"
 #include "cloudwatcher_client.h"
 #include "nina_client.h"
+#include "meteoblue_client.h"
 #include "display_driver.h"
 #include "ui_main.h"
 
@@ -20,6 +21,9 @@ static const char *TAG = "main";
 
 // Graph data allocated in PSRAM (large arrays: ~108KB for 6 series)
 static cw_graph_data_t *graph_data = NULL;
+
+// Meteoblue forecast data (small, kept in static memory)
+static mb_forecast_data_t mb_forecast = {0};
 
 // Flag for manual NINA image refresh (set by UI tap, checked by poll task)
 static volatile bool nina_refresh_flag = false;
@@ -41,12 +45,16 @@ static void cw_poll_task(void *arg)
 
     cw_current_data_t current_data;
     int poll_counter = 0;
+    int mb_poll_counter = 0;
     const int current_interval_s = CONFIG_CW_POLL_INTERVAL_S;
     const int graph_interval_s = CONFIG_CW_GRAPH_POLL_INTERVAL_S;
+    const int mb_interval_s = CONFIG_MB_POLL_INTERVAL_S;
     // Fetch graphs every N current-data polls
     const int graph_every_n = graph_interval_s / current_interval_s;
+    // Fetch Meteoblue forecast every N current-data polls
+    const int mb_every_n = mb_interval_s / current_interval_s;
 
-    // Initial fetch of both endpoints
+    // Initial fetch of all endpoints
     esp_err_t err = cw_fetch_current(&current_data);
     if (err == ESP_OK) {
         ui_update_current_data(&current_data);
@@ -57,6 +65,15 @@ static void cw_poll_task(void *arg)
         if (err == ESP_OK) {
             ui_update_graph_data(graph_data);
         }
+    }
+
+    // Initial Meteoblue forecast fetch
+    ESP_LOGI(TAG, "Fetching Meteoblue forecast...");
+    err = mb_fetch_forecast(&mb_forecast);
+    if (err == ESP_OK) {
+        ui_update_forecast_data(&mb_forecast);
+    } else {
+        ESP_LOGW(TAG, "Failed to fetch Meteoblue forecast: %s", esp_err_to_name(err));
     }
 
     while (1) {
@@ -93,6 +110,19 @@ static void cw_poll_task(void *arg)
                 ui_update_graph_data(graph_data);
             } else {
                 ESP_LOGW(TAG, "Failed to fetch graph data: %s", esp_err_to_name(err));
+            }
+        }
+
+        // Periodically fetch Meteoblue forecast
+        mb_poll_counter++;
+        if (mb_poll_counter >= mb_every_n) {
+            mb_poll_counter = 0;
+            ESP_LOGI(TAG, "Fetching Meteoblue forecast...");
+            err = mb_fetch_forecast(&mb_forecast);
+            if (err == ESP_OK) {
+                ui_update_forecast_data(&mb_forecast);
+            } else {
+                ESP_LOGW(TAG, "Failed to fetch Meteoblue forecast: %s", esp_err_to_name(err));
             }
         }
     }
@@ -191,12 +221,15 @@ void app_main(void)
     // Initialize CloudWatcher HTTP client
     ESP_ERROR_CHECK(cw_client_init());
 
+    // Initialize Meteoblue forecast client
+    ESP_ERROR_CHECK(mb_client_init());
+
     // Initialize NINA API client (HW JPEG decoder + buffers)
     ESP_ERROR_CHECK(nina_client_init());
 
     // Launch the data polling task (runs on any core)
-    // Stack needs to be large enough for LVGL chart rendering (float formatting + 400 point updates)
-    xTaskCreate(cw_poll_task, "cw_poll", 16384, NULL, 5, NULL);
+    // Stack needs to be large enough for LVGL chart rendering + TLS handshake for Meteoblue HTTPS
+    xTaskCreate(cw_poll_task, "cw_poll", 24576, NULL, 5, NULL);
 
     // Launch NINA image polling task (needs large stack for HTTP client + JSON parsing)
     xTaskCreate(nina_poll_task, "nina_poll", 16384, NULL, 4, NULL);
