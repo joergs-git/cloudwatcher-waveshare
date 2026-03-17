@@ -53,3 +53,21 @@
 - **Root cause:** LVGL 9 removed built-in axis tick labels from chart widget
 - **Rule:** For Y-axis labels in LVGL 9, create manual `lv_label` objects positioned alongside the chart and update them when the range changes.
 - **Applies to:** Any LVGL 9.x chart with axis labels
+
+## [2026-03-17] - Never run `idf.py set-target` on configured projects
+- **Mistake:** Could wipe sdkconfig including WiFi credentials and API keys
+- **Root cause:** `set-target` regenerates sdkconfig from defaults, losing all menuconfig customizations
+- **Rule:** Never run `idf.py set-target` on an already-configured project. If target needs changing, back up sdkconfig first.
+- **Applies to:** Any ESP-IDF project with secrets in sdkconfig
+
+## [2026-03-17] - ESP-IDF component name is `esp-tls` not `esp_tls`
+- **Mistake:** Used `esp_tls` (underscore) in CMakeLists.txt REQUIRES
+- **Root cause:** ESP-IDF component names use hyphens, not underscores (e.g., `esp-tls`)
+- **Rule:** Check upstream component names carefully. The TLS component is `esp-tls` with a hyphen.
+- **Applies to:** CMakeLists.txt REQUIRES for ESP-IDF components
+
+## [2026-03-17] - Always `git pull` before starting work on multi-machine projects
+- **Mistake:** Started coding changes on a branch 5 commits behind origin, requiring stash/merge
+- **Root cause:** Forgot to pull latest from remote before editing
+- **Rule:** Always run `git pull` first, especially for multi-machine workflows. Resolve divergence before starting new work.
+- **Applies to:** Any multi-machine git workflow
