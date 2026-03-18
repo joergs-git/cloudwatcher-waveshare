@@ -33,18 +33,31 @@ static int  auto_swap_counter = 0;          // counts up each second
 static bool manual_override = false;        // true if user navigated to Dashboard/Charts
 static lv_timer_t *auto_swap_timer = NULL;
 
+// Screen transition debounce: prevent rapid re-triggering during animation
+static uint32_t last_nav_tick = 0;
+#define NAV_DEBOUNCE_MS 500
+
 // Navigate to a specific screen with appropriate animation direction
 static void navigate_to(ui_screen_t target)
 {
     if (target == current_screen || target < 0 || target >= UI_SCREEN_COUNT) return;
 
-    lv_scr_load_anim_t anim = (target > current_screen)
-        ? LV_SCR_LOAD_ANIM_MOVE_LEFT
-        : LV_SCR_LOAD_ANIM_MOVE_RIGHT;
+    // Debounce: ignore navigations within 500ms of the last one
+    uint32_t now_tick = lv_tick_get();
+    if (now_tick - last_nav_tick < NAV_DEBOUNCE_MS) return;
+    last_nav_tick = now_tick;
 
     current_screen = target;
     lv_obj_t *target_screens[] = {scr_home, scr_nina, scr_dashboard, scr_charts, scr_dome};
-    lv_scr_load_anim(target_screens[target], anim, 300, 0, false);
+    // Instant switch — lv_scr_load_anim causes LVGL render lockup
+    lv_scr_load(target_screens[target]);
+
+    // Reset all input devices — lv_scr_load during active touch leaves indev
+    // tracking objects on the old screen, blocking all further touch processing
+    lv_indev_t *indev = NULL;
+    while ((indev = lv_indev_get_next(indev)) != NULL) {
+        lv_indev_reset(indev, NULL);
+    }
 }
 
 // Handle manual navigation: reset auto-swap counter and track override state
@@ -67,7 +80,11 @@ static void nav_btn_event_cb(lv_event_t *e)
 // Swipe gesture callback - detect horizontal swipes to switch screens
 static void swipe_event_cb(lv_event_t *e)
 {
-    lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    ESP_LOGI(TAG, "GESTURE: dir=%d screen=%d", dir, current_screen);
 
     if (dir == LV_DIR_LEFT && current_screen < UI_SCREEN_COUNT - 1) {
         on_manual_navigate((ui_screen_t)(current_screen + 1));
@@ -193,7 +210,7 @@ esp_err_t ui_init(void)
         lv_obj_t *nav0 = create_nav_bar(scr_home);
         lv_obj_add_event_cb(scr_home, swipe_event_cb, LV_EVENT_GESTURE, NULL);
 
-        // Create NINA image screen (screen 2)
+        // Create NINA image screen
         // Disable scrolling - canvas is wider than screen, would eat swipe gestures
         scr_nina = lv_obj_create(NULL);
         lv_obj_set_style_bg_color(scr_nina, lv_color_hex(0x0a0a1a), 0);
@@ -279,6 +296,8 @@ void ui_update_countdown(int seconds_until_refresh)
         } else {
             lv_label_set_text_fmt(lbl_countdown, "%ds", seconds_until_refresh);
         }
+        // Update home screen clock every second
+        ui_home_update_time();
         bsp_display_unlock();
     }
 }

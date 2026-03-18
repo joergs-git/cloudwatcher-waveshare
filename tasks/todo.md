@@ -50,24 +50,29 @@
 - [x] Pushover HTTPS notifications
 - [x] TLS cert bundle configured
 
-## Phase 9: v0.5.1 - Meteoblue Cloud Forecast
-- [x] meteoblue_client.c/h - HTTPS fetch + JSON parse of basic-1h API
-- [x] Cloud cover % mapped to sky-temp equivalent (-25C=clear, +5C=overcast)
-- [x] Home chart reworked: -12h to +12h centered on "now"
-- [x] Dark green forecast line with linear interpolation (24 hourly points)
-- [x] Vertical "now" marker line at chart midpoint
-- [x] X-axis time labels (-12h, -6h, now, +6h, +12h)
-- [x] Y-range auto-scales across both CW + forecast data
-- [x] Kconfig: MB_API_KEY, lat/lon/alt, poll interval (default 1h)
-- [ ] Build and test on hardware (needs ESP-IDF build machine)
-- [ ] Verify Meteoblue HTTPS connection works
-- [ ] Visual tuning: "now" line position, forecast line visibility
+## Phase 9: v0.5.2 - Meteoblue Cloud Forecast + Bug Fixes
+- [x] meteoblue_client.c/h - HTTPS fetch + JSON parse (15-min resolution via clouds-15min)
+- [x] MD5 signature validation for signed API key (mbedtls)
+- [x] Kconfig: MB_API_KEY, MB_API_SECRET, lat/lon/alt, poll interval
+- [x] API package changed: basic-15min_clouds-15min (was basic-1h_basic-day)
+- [x] JSON key: data_xmin (not data_1h)
+- [x] Removed espressif/usb dependency (incompatible with ESP-IDF v5.4 HAL)
+- [x] Meteoblue HTTPS fetch works (50KB response, 673 entries)
+- [x] **Fixed CW graph x-value mapping** — indices not minutes, added CW_X_TO_MIN() macro
+- [x] **Fixed swipe/touch** — replaced lv_obj bar overlays with chart line series (bars killed touch)
+- [x] **Fixed clock overlay** — restored 80px custom font as chart child, 40% opacity
+- [x] **Fixed screen navigation** — lv_scr_load() + lv_indev_reset() (animation caused render lockup)
+- [x] Forecast shown as grey line series spanning full -12h to +12h
+- [x] NTP guard: skip graph mapping if time not synced
+- [x] Navigation debounce (500ms)
+- [x] WDT timeout increased to 60s
+- [x] Chart reduced to 100 points (50 past + 50 future)
 
 ## Results
 - ESP-IDF v5.4 installed at ~/esp/esp-idf
 - Project builds successfully for ESP32-P4 (0 errors, 0 warnings)
-- Binary: ~1.3MB / 3MB partition (58% free)
+- Binary: ~1.5MB / 3MB partition (50% free)
 - All managed components resolved: Waveshare BSP, ST7703, GT911, LVGL 9.1, esp_hosted
 - Hardware tested: display working, touch working (backup address 0x14), WiFi connected, data polling operational
-- 5 screens: Home (overview + forecast chart), NINA, Details (sensor cards), Charts (6 tabbed metrics), Dome Control
-- Swipe + button navigation between screens
+- 5 screens: Home (overview + forecast line), NINA, Details (sensor cards), Charts (6 tabbed metrics), Dome Control
+- Swipe + button navigation working, instant screen switch (no animation)

@@ -66,6 +66,54 @@
 - **Rule:** Check upstream component names carefully. The TLS component is `esp-tls` with a hyphen.
 - **Applies to:** CMakeLists.txt REQUIRES for ESP-IDF components
 
+## [2026-03-18] - Meteoblue signed API keys require MD5 signature
+- **Mistake:** Used plain API URL, got HTTP 403
+- **Root cause:** API key has signature validation enabled; URL needs `&sig=MD5(path_query + "&secret=" + secret)`
+- **Rule:** For Meteoblue signed keys: sig = MD5 of path+query (no domain) + "&secret=" + shared_secret. Use mbedtls_md5 on ESP32.
+- **Applies to:** Meteoblue API integration
+
+## [2026-03-18] - Meteoblue 15-min data uses `data_xmin` key, not `data_1h`
+- **Mistake:** Tried to access `data_1h` from 15-min package response
+- **Root cause:** Different package resolutions use different JSON keys
+- **Rule:** basic-1h → `data_1h`, basic-15min/clouds-15min → `data_xmin`. Check response structure.
+- **Applies to:** Meteoblue API JSON parsing
+
+## [2026-03-18] - espressif/usb component v1.2+ incompatible with ESP-IDF v5.4
+- **Mistake:** Had `espressif/usb: '*'` in idf_component.yml, pulled v1.2+ which uses HAL APIs not in v5.4
+- **Root cause:** usb component evolved past ESP-IDF v5.4's HAL; project didn't need USB directly
+- **Rule:** Don't add unnecessary component dependencies. Remove `espressif/usb` if not used directly.
+- **Applies to:** ESP-IDF component dependency management
+
+## [2026-03-18] - LVGL 9: lv_obj overlay children on screens KILL all touch input
+- **Mistake:** Created lv_obj_create() rectangles as screen children for forecast bars; killed ALL touch (buttons AND swipe)
+- **Root cause:** Even with CLICKABLE cleared, SCROLLABLE cleared, and FLOATING flag set, lv_obj children positioned over the screen with lv_obj_set_pos() completely break LVGL's touch input processing. The exact mechanism is unclear but reproducible: touch works before bar objects are shown, dies immediately after.
+- **Rule:** NEVER use lv_obj_create() to make overlay elements on screens. Use chart series lines, draw events, or canvas instead. This is the #1 LVGL 9 gotcha for this project.
+- **Applies to:** Any LVGL 9 project needing visual overlays on screens with touch
+
+## [2026-03-18] - CloudWatcher graphData x-values are indices, not minutes
+- **Mistake:** Treated CW graphData x values as minutes from midnight; chart showed only 2-3 hours of data
+- **Root cause:** x values are indices starting at -30 (full day: -30 to 719 = 750 points). Each unit ≈ 1.92 minutes.
+- **Rule:** Convert with `real_minutes = (x + 30) * (1440.0 / 750.0)`. Check by logging x[0] and x[last] on first integration.
+- **Applies to:** AAG CloudWatcher Solo graphData.pl parsing
+
+## [2026-03-18] - lv_scr_load_anim() causes permanent render lockup with FULL_REFRESH
+- **Mistake:** Used lv_scr_load_anim(MOVE_LEFT) for screen transitions; animation stuck at 50%, LVGL task locked
+- **Root cause:** With CONFIG_BSP_DISPLAY_LVGL_FULL_REFRESH=y, both screens render simultaneously during animation. Complex screens (chart + series + labels) overwhelm the renderer permanently.
+- **Rule:** Use lv_scr_load() (instant) + lv_indev_reset() for screen transitions on this hardware. No animation. If animation is needed, simplify screens first.
+- **Applies to:** ESP32-P4 with MIPI-DSI full-refresh displays and complex LVGL screens
+
+## [2026-03-18] - lv_scr_load() requires lv_indev_reset() to maintain touch
+- **Mistake:** Used lv_scr_load() without resetting input devices; touch stopped working after first navigation
+- **Root cause:** Instant screen switch during active touch leaves indev tracking pressed objects on the old (now inactive) screen
+- **Rule:** Always call lv_indev_reset(indev, NULL) on all pointer indevs after lv_scr_load()
+- **Applies to:** Any LVGL 9 project using lv_scr_load() with touch
+
+## [2026-03-18] - Multiple ESP-IDF toolchain versions cause build failures
+- **Mistake:** Had both esp-14.2.0 and esp-15.2.0 riscv32 toolchains; bootloader picked wrong one
+- **Root cause:** Another ESP-IDF version installed the newer toolchain; CMake bootloader subprocess found it
+- **Rule:** Rename/hide conflicting toolchain versions in ~/.espressif/tools/ when building with a specific ESP-IDF version
+- **Applies to:** Multi-version ESP-IDF installations
+
 ## [2026-03-17] - Always `git pull` before starting work on multi-machine projects
 - **Mistake:** Started coding changes on a branch 5 commits behind origin, requiring stash/merge
 - **Root cause:** Forgot to pull latest from remote before editing

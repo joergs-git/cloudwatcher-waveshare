@@ -1,5 +1,6 @@
 // Meteoblue Forecast API client - fetches hourly cloud cover predictions
-// Uses basic-1h package for totalcloudcover data
+// Uses basic-1h + clouds-1h packages for totalcloudcover data
+// Supports signed API keys (MD5 signature validation)
 
 #include "meteoblue_client.h"
 
@@ -13,6 +14,7 @@
 #include "esp_heap_caps.h"
 #include "esp_crt_bundle.h"
 #include "cJSON.h"
+#include "mbedtls/md5.h"
 
 static const char *TAG = "mb_client";
 
@@ -56,13 +58,30 @@ esp_err_t mb_fetch_forecast(mb_forecast_data_t *data)
     if (!data) return ESP_ERR_INVALID_ARG;
     memset(data, 0, sizeof(*data));
 
-    // Build API URL
-    char url[256];
-    snprintf(url, sizeof(url),
-             "https://my.meteoblue.com/packages/basic-1h"
+    // Build API path+query (without domain, needed for signature)
+    char path_query[256];
+    snprintf(path_query, sizeof(path_query),
+             "/packages/basic-15min_clouds-15min"
              "?apikey=%s&lat=%s&lon=%s&asl=%d&format=json",
              CONFIG_MB_API_KEY, CONFIG_MB_LATITUDE, CONFIG_MB_LONGITUDE,
              CONFIG_MB_ALTITUDE);
+
+    // Compute MD5 signature: sig = MD5(path_query + "&secret=" + secret)
+    char sig_input[384];
+    snprintf(sig_input, sizeof(sig_input), "%s&secret=%s", path_query, CONFIG_MB_API_SECRET);
+
+    unsigned char md5_hash[16];
+    mbedtls_md5((const unsigned char *)sig_input, strlen(sig_input), md5_hash);
+
+    char sig_hex[33];
+    for (int i = 0; i < 16; i++) {
+        snprintf(sig_hex + i * 2, 3, "%02x", md5_hash[i]);
+    }
+
+    // Build full URL with signature
+    char url[384];
+    snprintf(url, sizeof(url), "https://my.meteoblue.com%s&sig=%s", path_query, sig_hex);
+    ESP_LOGI(TAG, "Fetching: %s", url);
 
     // Allocate response buffer from PSRAM
     char *buf = heap_caps_malloc(MB_RESPONSE_BUF_SIZE, MALLOC_CAP_SPIRAM);
@@ -119,10 +138,10 @@ esp_err_t mb_fetch_forecast(mb_forecast_data_t *data)
         return ESP_FAIL;
     }
 
-    // Navigate to data_1h object
-    cJSON *data_1h = cJSON_GetObjectItem(root, "data_1h");
+    // Navigate to data_xmin object (15-minute resolution)
+    cJSON *data_1h = cJSON_GetObjectItem(root, "data_xmin");
     if (!data_1h) {
-        ESP_LOGE(TAG, "No 'data_1h' in Meteoblue response");
+        ESP_LOGE(TAG, "No 'data_xmin' in Meteoblue response");
         cJSON_Delete(root);
         return ESP_FAIL;
     }

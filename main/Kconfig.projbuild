@@ -46,6 +46,13 @@ menu "Meteoblue Forecast Configuration"
         help
             Your Meteoblue Forecast API key. Get one at https://www.meteoblue.com/en/weather-api
 
+    config MB_API_SECRET
+        string "Meteoblue API Secret (for signed keys)"
+        default "JOHNDOE_SECRET"
+        help
+            Shared secret for Meteoblue API signature validation.
+            The URL signature is: sig = MD5(path_and_query + "&secret=" + this_value)
+
     config MB_LATITUDE
         string "Latitude"
         default "52.17"

@@ -29,7 +29,6 @@ static const char *TAG = "ui_home";
 #define COLOR_TEXT_BRIGHT lv_color_hex(0xe0e0e0)
 #define COLOR_SKY_LINE  lv_color_hex(0x00e676)  // bright green for sky temp
 #define COLOR_AMB_LINE  lv_color_hex(0xff5252)  // red for ambient temp
-#define COLOR_FORECAST  lv_color_hex(0x006633)  // dark green for Meteoblue forecast
 
 // Big status labels
 static lv_obj_t *lbl_cloud_state = NULL;
@@ -52,7 +51,9 @@ static lv_obj_t *lbl_dew_point = NULL;
 static lv_obj_t          *chart = NULL;
 static lv_chart_series_t *ser_sky = NULL;
 static lv_chart_series_t *ser_amb = NULL;
-static lv_chart_series_t *ser_forecast = NULL;
+static lv_chart_series_t *ser_cloud = NULL;  // Meteoblue cloud cover forecast
+
+static lv_obj_t *home_parent = NULL;  // screen reference
 
 // "Now" vertical line inside chart
 static lv_obj_t *now_line = NULL;
@@ -66,34 +67,36 @@ static lv_obj_t *y_axis_lbls[Y_AXIS_LABELS] = {0};
 #define X_AXIS_LABELS 5
 static lv_obj_t *x_axis_lbls[X_AXIS_LABELS] = {0};
 
-#define CHART_POINTS 200
+#define CHART_POINTS 100  // 50 past + 50 future
 #define CHART_X_OFFSET 50   // left margin for Y-axis labels
 #define CHART_WIDTH    610
 #define CHART_HEIGHT   430
 #define CHART_Y_TOP    85
 
-// Left half of chart = past 12h (indices 0..99), right half = future 12h (100..199)
-#define CHART_NOW_INDEX 100
+// Left half = past 12h (indices 0..49), right half = future (50..99)
+#define CHART_NOW_INDEX 50
 #define HALF_WINDOW_MIN 720.0f  // 12 hours in minutes
 
-// Stored Y-range bounds from each data source for consistent axis scaling
+// CloudWatcher graphData x-value conversion: x values are indices starting at -30
+// A full day has 750 points from x=-30 to x=719.
+// Convert to minutes from midnight: real_min = (x + 30) * (1440 / 750)
+#define CW_X_OFFSET  30.0f
+#define CW_X_SCALE   (1440.0f / 750.0f)
+#define CW_X_TO_MIN(x) (((x) + CW_X_OFFSET) * CW_X_SCALE)
+
+// Stored Y-range bounds from CloudWatcher data
 static float cw_y_min = FLT_MAX, cw_y_max = -FLT_MAX;
 static bool cw_y_valid = false;
-static float fc_y_min = FLT_MAX, fc_y_max = -FLT_MAX;
-static bool fc_y_valid = false;
 
-// Update the chart Y-range and axis labels based on all data sources
+// Update the chart Y-range and axis labels based on CloudWatcher data only
+// (forecast bars use their own 0-100% scale, independent of temp Y-axis)
 static void update_chart_range(void)
 {
     float min_val = FLT_MAX, max_val = -FLT_MAX;
 
     if (cw_y_valid) {
-        if (cw_y_min < min_val) min_val = cw_y_min;
-        if (cw_y_max > max_val) max_val = cw_y_max;
-    }
-    if (fc_y_valid) {
-        if (fc_y_min < min_val) min_val = fc_y_min;
-        if (fc_y_max > max_val) max_val = fc_y_max;
+        min_val = cw_y_min;
+        max_val = cw_y_max;
     }
 
     // Fallback if no data yet
@@ -122,23 +125,25 @@ static void update_chart_range(void)
 }
 
 // Fill a chart series with CW data mapped to the past-12h half (indices 0..99)
-// x_minutes[] = minutes from midnight for each data point
+// Uses today + yesterday data to cover the full 12h window across midnight
 static void fill_series_past_12h(lv_chart_series_t *ser,
-                                  const float *data, const float *x_minutes,
-                                  int count)
+                                  const float *today_data, const float *today_x,
+                                  int today_count,
+                                  const float *yesterday_data, const float *yesterday_x,
+                                  int yesterday_count)
 {
     // Clear all chart points
     for (int i = 0; i < CHART_POINTS; i++) {
         lv_chart_set_value_by_id(chart, ser, i, LV_CHART_POINT_NONE);
     }
 
-    if (count <= 0) return;
+    if (today_count <= 0 && yesterday_count <= 0) return;
 
     // Get current time as minutes from midnight
     time_t now = time(NULL);
     struct tm *ti = localtime(&now);
     float now_min = ti->tm_hour * 60.0f + ti->tm_min + ti->tm_sec / 60.0f;
-    float cutoff_min = now_min - HALF_WINDOW_MIN;  // 12h ago in minutes-from-midnight
+    float cutoff_min = now_min - HALF_WINDOW_MIN;  // 12h ago (may be negative)
 
     // Each chart point in the left half spans 7.2 minutes
     float minutes_per_point = HALF_WINDOW_MIN / (float)CHART_NOW_INDEX;
@@ -149,69 +154,56 @@ static void fill_series_past_12h(lv_chart_series_t *ser,
     memset(bin_sum, 0, sizeof(bin_sum));
     memset(bin_count, 0, sizeof(bin_count));
 
-    for (int i = 0; i < count; i++) {
-        float x = x_minutes[i];
+    // If cutoff crosses midnight, include yesterday's data (shifted by +1440 min)
+    if (cutoff_min < 0 && yesterday_count > 0) {
+        float yesterday_cutoff = cutoff_min + 1440.0f;  // e.g. -180 -> 1260 (21:00)
+        for (int i = 0; i < yesterday_count; i++) {
+            float real_min = CW_X_TO_MIN(yesterday_x[i]);
+            if (real_min < yesterday_cutoff) continue;  // before our window
 
-        // Handle wrap-around for early morning (cutoff < 0 means data from yesterday)
-        // For now, only use today's data that falls in our window
-        if (x < cutoff_min || x > now_min) continue;
+            // Offset relative to cutoff: yesterday's time shifted to negative minutes
+            float offset = (real_min - 1440.0f) - cutoff_min;  // map to 0..HALF_WINDOW_MIN
+            int idx = (int)(offset / minutes_per_point);
+            if (idx < 0) idx = 0;
+            if (idx >= CHART_NOW_INDEX) idx = CHART_NOW_INDEX - 1;
 
-        float offset = x - cutoff_min;  // 0 at -12h, HALF_WINDOW_MIN at now
+            if (isfinite(yesterday_data[i])) {
+                bin_sum[idx] += yesterday_data[i];
+                bin_count[idx]++;
+            }
+        }
+    }
+
+    // Today's data — convert CW x indices to real minutes from midnight
+    for (int i = 0; i < today_count; i++) {
+        float real_min = CW_X_TO_MIN(today_x[i]);
+
+        if (real_min > now_min) continue;
+        // When cutoff is positive, skip data before cutoff
+        if (cutoff_min >= 0 && real_min < cutoff_min) continue;
+
+        float offset = real_min - cutoff_min;  // 0 at -12h, HALF_WINDOW_MIN at now
         int idx = (int)(offset / minutes_per_point);
         if (idx < 0) idx = 0;
         if (idx >= CHART_NOW_INDEX) idx = CHART_NOW_INDEX - 1;
 
-        if (isfinite(data[i])) {
-            bin_sum[idx] += data[i];
+        if (isfinite(today_data[i])) {
+            bin_sum[idx] += today_data[i];
             bin_count[idx]++;
         }
     }
 
+    int filled = 0;
     for (int i = 0; i < CHART_NOW_INDEX; i++) {
         if (bin_count[i] > 0) {
             float avg = bin_sum[i] / (float)bin_count[i];
             lv_chart_set_value_by_id(chart, ser, i, (int32_t)(avg * 10.0f));
+            filled++;
         }
     }
-}
 
-// Fill the forecast series across the full chart width using linear interpolation
-static void fill_forecast_series(const mb_forecast_data_t *forecast)
-{
-    // Clear all points
-    for (int i = 0; i < CHART_POINTS; i++) {
-        lv_chart_set_value_by_id(chart, ser_forecast, i, LV_CHART_POINT_NONE);
-    }
-
-    if (!forecast || !forecast->valid || forecast->count < 2) return;
-
-    time_t now = time(NULL);
-    time_t window_start = now - 12 * 3600;
-    float secs_per_point = (24.0f * 3600.0f) / (float)CHART_POINTS;
-
-    for (int i = 0; i < CHART_POINTS; i++) {
-        time_t t = window_start + (time_t)(i * secs_per_point);
-
-        // Find the two forecast entries bracketing this time
-        int lo = -1;
-        for (int j = 0; j < forecast->count - 1; j++) {
-            if (forecast->timestamps[j] <= t && forecast->timestamps[j + 1] >= t) {
-                lo = j;
-                break;
-            }
-        }
-
-        if (lo < 0) continue;  // Outside forecast range
-
-        // Linear interpolation between hourly forecast points
-        int hi = lo + 1;
-        float dt = (float)(forecast->timestamps[hi] - forecast->timestamps[lo]);
-        float frac = (dt > 0) ? (float)(t - forecast->timestamps[lo]) / dt : 0.0f;
-        float val = forecast->sky_temp_equiv[lo] +
-                    frac * (forecast->sky_temp_equiv[hi] - forecast->sky_temp_equiv[lo]);
-
-        lv_chart_set_value_by_id(chart, ser_forecast, i, (int32_t)(val * 10.0f));
-    }
+    ESP_LOGI(TAG, "fill_series: now_min=%.0f cutoff=%.0f filled=%d/%d bins",
+             now_min, cutoff_min, filled, CHART_NOW_INDEX);
 }
 
 // Get color for cloud state
@@ -240,6 +232,8 @@ static void dome_banner_tap_cb(lv_event_t *e)
 
 lv_obj_t *ui_home_create(lv_obj_t *parent)
 {
+    home_parent = parent;
+
     // --- Top section: big status words ---
 
     // Cloud state (e.g., "CLEAR", "CLOUDY", "OVERCAST")
@@ -309,18 +303,24 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     lv_obj_set_style_line_color(chart, lv_color_hex(0x1a2a3a), LV_PART_MAIN);
     lv_chart_set_div_line_count(chart, Y_AXIS_LABELS - 1, 6);
 
-    // Forecast series (dark green) - added first so it renders behind actual data
-    ser_forecast = lv_chart_add_series(chart, COLOR_FORECAST, LV_CHART_AXIS_PRIMARY_Y);
-
     // Sky temp series (bright green)
     ser_sky = lv_chart_add_series(chart, COLOR_SKY_LINE, LV_CHART_AXIS_PRIMARY_Y);
 
     // Ambient temp series (red)
     ser_amb = lv_chart_add_series(chart, COLOR_AMB_LINE, LV_CHART_AXIS_PRIMARY_Y);
 
+    // Meteoblue cloud cover forecast (grey, plotted in future half of chart)
+    ser_cloud = lv_chart_add_series(chart, lv_color_hex(0x888888), LV_CHART_AXIS_PRIMARY_Y);
+
     // Hide point markers for clean lines
     lv_obj_set_style_size(chart, 0, 0, LV_PART_INDICATOR);
     lv_obj_set_style_line_width(chart, 2, LV_PART_ITEMS);
+
+    // Chart non-interactive: touches pass through to parent screen for gesture detection
+    lv_obj_clear_flag(chart, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollbar_mode(chart, LV_SCROLLBAR_MODE_OFF);
+
+    // Forecast bars are created lazily on first data update to avoid startup issues
 
     // "Now" vertical line at chart midpoint
     now_line_pts[0] = (lv_point_precise_t){0, 0};
@@ -362,12 +362,12 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     lv_obj_align(leg_amb, LV_ALIGN_TOP_LEFT, CHART_X_OFFSET + 130, CHART_Y_TOP + CHART_HEIGHT + 5);
 
     lv_obj_t *leg_fc = lv_label_create(parent);
-    lv_label_set_text(leg_fc, "-- Forecast");
+    lv_label_set_text(leg_fc, "Cloud %");
     lv_obj_set_style_text_font(leg_fc, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(leg_fc, COLOR_FORECAST, 0);
+    lv_obj_set_style_text_color(leg_fc, lv_color_hex(0x888888), 0);
     lv_obj_align(leg_fc, LV_ALIGN_TOP_LEFT, CHART_X_OFFSET + 240, CHART_Y_TOP + CHART_HEIGHT + 5);
 
-    // Time overlay label (white, 80px, 40% opaque / 60% transparent, inside chart)
+    // Time overlay label - chart child, custom 80px font, semi-transparent
     lbl_time_overlay = lv_label_create(chart);
     lv_label_set_text(lbl_time_overlay, "--:--");
     lv_obj_set_style_text_font(lbl_time_overlay, &font_montserrat_80, 0);
@@ -397,6 +397,21 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
 
     ESP_LOGI(TAG, "Home screen created (chart: -12h to +12h with forecast)");
     return parent;
+}
+
+void ui_home_update_time(void)
+{
+    if (!lbl_time_overlay) return;
+
+    time_t now = time(NULL);
+    struct tm *ti = localtime(&now);
+    char tbuf[8];
+    if (ti->tm_year > (2020 - 1900)) {
+        snprintf(tbuf, sizeof(tbuf), "%02d:%02d", ti->tm_hour, ti->tm_min);
+    } else {
+        snprintf(tbuf, sizeof(tbuf), "--:--");
+    }
+    lv_label_set_text(lbl_time_overlay, tbuf);
 }
 
 void ui_home_update(const cw_current_data_t *data)
@@ -429,99 +444,160 @@ void ui_home_update(const cw_current_data_t *data)
     snprintf(buf, sizeof(buf), "Dew: %.1f C", data->dew_point);
     lv_label_set_text(lbl_dew_point, buf);
 
-    // Update time overlay on chart from system clock (NTP synced)
-    if (lbl_time_overlay) {
-        time_t now = time(NULL);
-        struct tm *ti = localtime(&now);
-        char tbuf[8];
-        if (ti->tm_year > (2020 - 1900)) {
-            snprintf(tbuf, sizeof(tbuf), "%02d:%02d", ti->tm_hour, ti->tm_min);
-        } else {
-            snprintf(tbuf, sizeof(tbuf), "--:--");
-        }
-        lv_label_set_text(lbl_time_overlay, tbuf);
-    }
+    // Update time overlay (also called every second from ui_update_countdown)
+    ui_home_update_time();
 }
 
 void ui_home_update_graph(const cw_graph_data_t graphs[CW_GRAPH_SERIES_COUNT])
 {
     if (!graphs || !chart) return;
 
-    const cw_graph_data_t *sky = &graphs[CW_GRAPH_CLOUDS];
-    const cw_graph_data_t *amb = &graphs[CW_GRAPH_TEMP];
-
-    // Compute Y-range bounds from CW data (only past 12h portion)
+    // Skip if NTP hasn't synced yet - time-based mapping would be wrong
     time_t now = time(NULL);
     struct tm *ti = localtime(&now);
+    if (ti->tm_year <= (2020 - 1900)) {
+        ESP_LOGW(TAG, "NTP not synced yet, skipping graph update");
+        return;
+    }
+
+    const cw_graph_data_t *sky = &graphs[CW_GRAPH_CLOUDS];
+    const cw_graph_data_t *amb = &graphs[CW_GRAPH_TEMP];
     float now_min = ti->tm_hour * 60.0f + ti->tm_min;
     float cutoff_min = now_min - HALF_WINDOW_MIN;
 
     cw_y_min = FLT_MAX;
     cw_y_max = -FLT_MAX;
 
+    // Today's data in window (convert CW x indices to real minutes)
     for (int i = 0; i < sky->today_count; i++) {
-        if (sky->today_x[i] < cutoff_min || sky->today_x[i] > now_min) continue;
+        float real_min = CW_X_TO_MIN(sky->today_x[i]);
+        if (real_min > now_min) continue;
+        if (cutoff_min >= 0 && real_min < cutoff_min) continue;
         if (isfinite(sky->today[i])) {
             if (sky->today[i] < cw_y_min) cw_y_min = sky->today[i];
             if (sky->today[i] > cw_y_max) cw_y_max = sky->today[i];
         }
     }
     for (int i = 0; i < amb->today_count; i++) {
-        if (amb->today_x[i] < cutoff_min || amb->today_x[i] > now_min) continue;
+        float real_min = CW_X_TO_MIN(amb->today_x[i]);
+        if (real_min > now_min) continue;
+        if (cutoff_min >= 0 && real_min < cutoff_min) continue;
         if (isfinite(amb->today[i])) {
             if (amb->today[i] < cw_y_min) cw_y_min = amb->today[i];
             if (amb->today[i] > cw_y_max) cw_y_max = amb->today[i];
         }
     }
 
+    // Yesterday's data when window crosses midnight
+    if (cutoff_min < 0) {
+        float yesterday_cutoff = cutoff_min + 1440.0f;
+        for (int i = 0; i < sky->yesterday_count; i++) {
+            float real_min = CW_X_TO_MIN(sky->yesterday_x[i]);
+            if (real_min < yesterday_cutoff) continue;
+            if (isfinite(sky->yesterday[i])) {
+                if (sky->yesterday[i] < cw_y_min) cw_y_min = sky->yesterday[i];
+                if (sky->yesterday[i] > cw_y_max) cw_y_max = sky->yesterday[i];
+            }
+        }
+        for (int i = 0; i < amb->yesterday_count; i++) {
+            float real_min = CW_X_TO_MIN(amb->yesterday_x[i]);
+            if (real_min < yesterday_cutoff) continue;
+            if (isfinite(amb->yesterday[i])) {
+                if (amb->yesterday[i] < cw_y_min) cw_y_min = amb->yesterday[i];
+                if (amb->yesterday[i] > cw_y_max) cw_y_max = amb->yesterday[i];
+            }
+        }
+    }
+
     cw_y_valid = (cw_y_min < cw_y_max);
 
-    // Update chart range considering both CW and forecast bounds
+    // Update chart Y-range based on CW data
     update_chart_range();
 
     // Fill sky and ambient series for past 12h (left half of chart)
-    fill_series_past_12h(ser_sky, sky->today, sky->today_x, sky->today_count);
-    fill_series_past_12h(ser_amb, amb->today, amb->today_x, amb->today_count);
+    // Include yesterday's data when the 12h window crosses midnight
+    fill_series_past_12h(ser_sky, sky->today, sky->today_x, sky->today_count,
+                         sky->yesterday, sky->yesterday_x, sky->yesterday_count);
+    fill_series_past_12h(ser_amb, amb->today, amb->today_x, amb->today_count,
+                         amb->yesterday, amb->yesterday_x, amb->yesterday_count);
 
     lv_chart_refresh(chart);
 
-    ESP_LOGI(TAG, "Home chart updated: sky=%d pts, amb=%d pts (past 12h)",
-             sky->today_count, amb->today_count);
+    // Diagnostic: check if home screen content overflows (causes scroll, kills gestures)
+    lv_obj_update_layout(home_parent);
+    int32_t sh = lv_obj_get_height(home_parent);
+    int32_t ch = lv_obj_get_content_height(home_parent);
+    int32_t st = lv_obj_get_scroll_top(home_parent);
+    int32_t sb = lv_obj_get_scroll_bottom(home_parent);
+    ESP_LOGW(TAG, "SCROLL CHECK: screen_h=%ld content_h=%ld scroll_top=%ld scroll_bottom=%ld",
+             (long)sh, (long)ch, (long)st, (long)sb);
+    if (sb > 0) {
+        ESP_LOGE(TAG, "CONTENT OVERFLOW by %ld px — this kills gestures!", (long)sb);
+    }
+
+    // Diagnostic: log x-value ranges to verify data format
+    if (sky->today_count > 0) {
+        ESP_LOGI(TAG, "Sky today: %d pts, x[0]=%.1f x[last]=%.1f (expect min from midnight)",
+                 sky->today_count, sky->today_x[0], sky->today_x[sky->today_count - 1]);
+    }
+    if (sky->yesterday_count > 0) {
+        ESP_LOGI(TAG, "Sky yesterday: %d pts, x[0]=%.1f x[last]=%.1f",
+                 sky->yesterday_count, sky->yesterday_x[0], sky->yesterday_x[sky->yesterday_count - 1]);
+    }
+    ESP_LOGI(TAG, "Home chart: now_min=%.0f cutoff=%.0f y_range=[%.1f..%.1f]",
+             now_min, cutoff_min, cw_y_min, cw_y_max);
 }
 
 void ui_home_update_forecast(const mb_forecast_data_t *forecast)
 {
-    if (!forecast || !chart) return;
+    if (!chart || !ser_cloud) return;
 
-    if (!forecast->valid || forecast->count < 2) {
-        // Clear forecast series
-        for (int i = 0; i < CHART_POINTS; i++) {
-            lv_chart_set_value_by_id(chart, ser_forecast, i, LV_CHART_POINT_NONE);
-        }
-        lv_chart_refresh(chart);
-        return;
+    // Clear the cloud series (all points = NONE)
+    for (int i = 0; i < CHART_POINTS; i++) {
+        lv_chart_set_value_by_id(chart, ser_cloud, i, LV_CHART_POINT_NONE);
     }
 
-    // Compute Y-range bounds from forecast data
-    fc_y_min = FLT_MAX;
-    fc_y_max = -FLT_MAX;
+    if (!forecast || !forecast->valid || forecast->count < 1) return;
+
+    // Get current chart Y-range for mapping cloud % to temperature scale
+    // 0% cloud = chart minimum, 100% cloud = chart maximum
+    float range_min, range_max;
+    if (cw_y_valid) {
+        range_min = floorf((cw_y_min - 2.0f) / 5.0f) * 5.0f;
+        range_max = ceilf((cw_y_max + 2.0f) / 5.0f) * 5.0f;
+        if (range_max - range_min < 10.0f) range_max = range_min + 10.0f;
+    } else {
+        range_min = -30.0f;
+        range_max = 30.0f;
+    }
+
+    // Map forecast to full 24h window: -12h (index 0) to +12h (index CHART_POINTS-1)
+    time_t now = time(NULL);
+    time_t window_start = now - (time_t)(HALF_WINDOW_MIN * 60);
+    float total_secs = HALF_WINDOW_MIN * 60.0f * 2.0f;  // 24h in seconds
+    float secs_per_point = total_secs / (float)CHART_POINTS;
+
+    int filled = 0;
     for (int i = 0; i < forecast->count; i++) {
-        float v = forecast->sky_temp_equiv[i];
-        if (v < fc_y_min) fc_y_min = v;
-        if (v > fc_y_max) fc_y_max = v;
+        float offset_secs = (float)(forecast->timestamps[i] - window_start);
+        if (offset_secs < 0 || offset_secs >= total_secs) continue;
+
+        int idx = (int)(offset_secs / secs_per_point);
+        if (idx < 0 || idx >= CHART_POINTS) continue;
+
+        // Map cloud cover: 0% = range_min, 100% = range_max
+        float cloud_val = range_min + (forecast->cloud_cover_pct[i] / 100.0f) * (range_max - range_min);
+        lv_chart_set_value_by_id(chart, ser_cloud, idx, (int32_t)(cloud_val * 10.0f));
+        filled++;
     }
-    fc_y_valid = (fc_y_min < fc_y_max);
-
-    // Update chart range considering both CW and forecast bounds
-    update_chart_range();
-
-    // Fill forecast series across the full chart width
-    fill_forecast_series(forecast);
 
     lv_chart_refresh(chart);
+    ESP_LOGI(TAG, "Forecast line: %d points from %d entries", filled, forecast->count);
+}
 
-    ESP_LOGI(TAG, "Forecast chart updated: %d hours, range %.1f..%.1f C equiv",
-             forecast->count, fc_y_min, fc_y_max);
+lv_obj_t *ui_home_get_chart(void)
+{
+    return chart;
 }
 
 void ui_home_update_dome(const nina_dome_status_t *dome)
