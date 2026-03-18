@@ -21,6 +21,13 @@ static const char *TAG = "mb_client";
 // Meteoblue basic-1h response can be ~50-150KB
 #define MB_RESPONSE_BUF_SIZE (192 * 1024)
 
+// Cache: accumulate forecast data points across fetches so past data persists
+// even after the API stops returning it (API only returns future data)
+#define MB_CACHE_SIZE (MB_FORECAST_HOURS * 2)
+static time_t cache_ts[MB_CACHE_SIZE];
+static int    cache_cloud[MB_CACHE_SIZE];
+static int    cache_count = 0;
+
 esp_err_t mb_client_init(void)
 {
     ESP_LOGI(TAG, "Meteoblue client initialized (lat=%s, lon=%s, alt=%d)",
@@ -161,39 +168,65 @@ esp_err_t mb_fetch_forecast(mb_forecast_data_t *data)
 
     ESP_LOGI(TAG, "Meteoblue data: %d hourly entries", arr_size);
 
-    // Determine the 24h window: now-12h to now+12h
+    // Merge new API data into cache (API typically only returns future data,
+    // cache preserves past data points across fetches)
     time_t now = time(NULL);
     time_t window_start = now - 12 * 3600;
     time_t window_end = now + 12 * 3600;
 
-    // Iterate through all entries, collect those within our window
-    data->count = 0;
-    for (int i = 0; i < arr_size && data->count < MB_FORECAST_HOURS; i++) {
+    // First: purge cache entries older than 12h
+    int kept = 0;
+    for (int i = 0; i < cache_count; i++) {
+        if (cache_ts[i] >= window_start) {
+            cache_ts[kept] = cache_ts[i];
+            cache_cloud[kept] = cache_cloud[i];
+            kept++;
+        }
+    }
+    cache_count = kept;
+
+    // Add new entries from API that aren't already cached
+    for (int i = 0; i < arr_size; i++) {
         cJSON *t_item = cJSON_GetArrayItem(time_arr, i);
         cJSON *c_item = cJSON_GetArrayItem(cloud_arr, i);
 
         if (!cJSON_IsString(t_item) || !cJSON_IsNumber(c_item)) continue;
 
         time_t ts = parse_mb_time(t_item->valuestring);
-        if (ts == 0) continue;
+        if (ts == 0 || ts < window_start || ts > window_end) continue;
 
-        // Only include entries within our -12h to +12h window
-        if (ts < window_start || ts > window_end) continue;
-
-        int cloud_pct = (int)c_item->valuedouble;
-        int idx = data->count;
-        data->timestamps[idx] = ts;
-        data->cloud_cover_pct[idx] = cloud_pct;
-        data->sky_temp_equiv[idx] = cloud_cover_to_sky_temp(cloud_pct);
-        data->count++;
+        // Check if timestamp already exists in cache (update it if so)
+        bool found = false;
+        for (int j = 0; j < cache_count; j++) {
+            if (cache_ts[j] == ts) {
+                cache_cloud[j] = (int)c_item->valuedouble;
+                found = true;
+                break;
+            }
+        }
+        if (!found && cache_count < MB_CACHE_SIZE) {
+            cache_ts[cache_count] = ts;
+            cache_cloud[cache_count] = (int)c_item->valuedouble;
+            cache_count++;
+        }
     }
 
     cJSON_Delete(root);
 
+    // Build output from cache
+    data->count = 0;
+    for (int i = 0; i < cache_count && data->count < MB_FORECAST_HOURS; i++) {
+        int idx = data->count;
+        data->timestamps[idx] = cache_ts[i];
+        data->cloud_cover_pct[idx] = cache_cloud[i];
+        data->sky_temp_equiv[idx] = cloud_cover_to_sky_temp(cache_cloud[i]);
+        data->count++;
+    }
+
     data->valid = (data->count > 0);
 
-    ESP_LOGI(TAG, "Forecast: %d hours in window (now=%ld, start=%ld, end=%ld)",
-             data->count, (long)now, (long)window_start, (long)window_end);
+    ESP_LOGI(TAG, "Forecast: %d cached points in window (now=%ld, cache_total=%d)",
+             data->count, (long)now, cache_count);
 
     if (data->count > 0) {
         ESP_LOGI(TAG, "First: cloud=%d%% sky_equiv=%.1fC, Last: cloud=%d%% sky_equiv=%.1fC",

@@ -333,18 +333,17 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     // Position at horizontal midpoint of chart content area
     lv_obj_align(now_line, LV_ALIGN_LEFT_MID, CHART_WIDTH / 2, 0);
 
-    // X-axis time labels inside chart bottom
-    static const char *x_labels[X_AXIS_LABELS] = {"-12h", "-6h", "now", "+6h", "+12h"};
+    // X-axis time labels inside chart bottom (updated dynamically with real times)
     for (int i = 0; i < X_AXIS_LABELS; i++) {
         x_axis_lbls[i] = lv_label_create(chart);
-        lv_label_set_text(x_axis_lbls[i], x_labels[i]);
-        lv_obj_set_style_text_font(x_axis_lbls[i], &lv_font_montserrat_12, 0);
+        lv_label_set_text(x_axis_lbls[i], "--:--");
+        lv_obj_set_style_text_font(x_axis_lbls[i], &lv_font_montserrat_24, 0);
         lv_obj_set_style_text_color(x_axis_lbls[i], COLOR_TEXT_DIM, 0);
         lv_obj_set_style_text_opa(x_axis_lbls[i], LV_OPA_70, 0);
         // Distribute evenly across chart width, bottom-aligned
         int x_pos = (i * CHART_WIDTH) / (X_AXIS_LABELS - 1);
         // Center the label on its position (approximate offset for text width)
-        int x_offset = (i == 0) ? 2 : (i == X_AXIS_LABELS - 1) ? -30 : -12;
+        int x_offset = (i == 0) ? 2 : (i == X_AXIS_LABELS - 1) ? -30 : -15;
         lv_obj_align(x_axis_lbls[i], LV_ALIGN_BOTTOM_LEFT, x_pos + x_offset, -2);
     }
 
@@ -408,6 +407,17 @@ void ui_home_update_time(void)
     char tbuf[8];
     if (ti->tm_year > (2020 - 1900)) {
         snprintf(tbuf, sizeof(tbuf), "%02d:%02d", ti->tm_hour, ti->tm_min);
+
+        // Update x-axis labels with real clock times
+        // 5 labels at -12h, -6h, now, +6h, +12h offsets from current time
+        static const int x_offsets_h[X_AXIS_LABELS] = {-12, -6, 0, 6, 12};
+        for (int i = 0; i < X_AXIS_LABELS; i++) {
+            if (!x_axis_lbls[i]) continue;
+            int hour = (ti->tm_hour + x_offsets_h[i] + 24) % 24;
+            char xbuf[8];
+            snprintf(xbuf, sizeof(xbuf), "%02d:%02d", hour, ti->tm_min);
+            lv_label_set_text(x_axis_lbls[i], xbuf);
+        }
     } else {
         snprintf(tbuf, sizeof(tbuf), "--:--");
     }
