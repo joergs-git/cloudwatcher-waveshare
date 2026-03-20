@@ -13,6 +13,8 @@
 #include "esp_http_client.h"
 #include "esp_heap_caps.h"
 #include "esp_crt_bundle.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "cJSON.h"
 #include "mbedtls/md5.h"
 
@@ -28,8 +30,76 @@ static time_t cache_ts[MB_CACHE_SIZE];
 static int    cache_cloud[MB_CACHE_SIZE];
 static int    cache_count = 0;
 
+#define NVS_NAMESPACE "mb_cache"
+#define NVS_KEY_TS    "ts"
+#define NVS_KEY_CLOUD "cloud"
+#define NVS_KEY_COUNT "count"
+
+// Save cache to NVS so forecast bars survive reboot
+static void cache_save_nvs(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
+
+    nvs_set_i32(h, NVS_KEY_COUNT, cache_count);
+    if (cache_count > 0) {
+        nvs_set_blob(h, NVS_KEY_TS, cache_ts, cache_count * sizeof(time_t));
+        nvs_set_blob(h, NVS_KEY_CLOUD, cache_cloud, cache_count * sizeof(int));
+    }
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "Cache saved to NVS: %d entries", cache_count);
+}
+
+// Load cache from NVS on startup
+static void cache_load_nvs(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGI(TAG, "No NVS cache found, starting fresh");
+        return;
+    }
+
+    int32_t count = 0;
+    if (nvs_get_i32(h, NVS_KEY_COUNT, &count) != ESP_OK || count <= 0) {
+        nvs_close(h);
+        return;
+    }
+    if (count > MB_CACHE_SIZE) count = MB_CACHE_SIZE;
+
+    size_t ts_size = count * sizeof(time_t);
+    size_t cloud_size = count * sizeof(int);
+
+    esp_err_t e1 = nvs_get_blob(h, NVS_KEY_TS, cache_ts, &ts_size);
+    esp_err_t e2 = nvs_get_blob(h, NVS_KEY_CLOUD, cache_cloud, &cloud_size);
+    nvs_close(h);
+
+    if (e1 == ESP_OK && e2 == ESP_OK) {
+        cache_count = count;
+
+        // Purge entries older than 12h (stale data from before reboot)
+        time_t now = time(NULL);
+        time_t window_start = now - 12 * 3600;
+        int kept = 0;
+        for (int i = 0; i < cache_count; i++) {
+            if (cache_ts[i] >= window_start) {
+                cache_ts[kept] = cache_ts[i];
+                cache_cloud[kept] = cache_cloud[i];
+                kept++;
+            }
+        }
+        cache_count = kept;
+        ESP_LOGI(TAG, "Cache loaded from NVS: %d entries (%d after pruning stale)",
+                 (int)count, cache_count);
+    } else {
+        ESP_LOGW(TAG, "NVS cache read failed, starting fresh");
+        cache_count = 0;
+    }
+}
+
 esp_err_t mb_client_init(void)
 {
+    cache_load_nvs();
     ESP_LOGI(TAG, "Meteoblue client initialized (lat=%s, lon=%s, alt=%d)",
              CONFIG_MB_LATITUDE, CONFIG_MB_LONGITUDE, CONFIG_MB_ALTITUDE);
     return ESP_OK;
@@ -212,6 +282,9 @@ esp_err_t mb_fetch_forecast(mb_forecast_data_t *data)
     }
 
     cJSON_Delete(root);
+
+    // Persist cache to NVS so bars survive reboot
+    cache_save_nvs();
 
     // Build output from cache
     data->count = 0;
