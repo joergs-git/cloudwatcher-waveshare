@@ -51,7 +51,12 @@ static lv_obj_t *lbl_dew_point = NULL;
 static lv_obj_t          *chart = NULL;
 static lv_chart_series_t *ser_sky = NULL;
 static lv_chart_series_t *ser_amb = NULL;
-static lv_chart_series_t *ser_cloud = NULL;  // Meteoblue cloud cover forecast
+
+// Forecast bar data for custom draw (no child objects — safe for touch)
+#define FORECAST_MAX_BARS 97
+static int forecast_bar_pct[FORECAST_MAX_BARS];  // cloud cover 0-100%
+static int forecast_bar_idx[FORECAST_MAX_BARS];  // chart point index
+static int forecast_bar_count = 0;
 
 static lv_obj_t *home_parent = NULL;  // screen reference
 
@@ -87,6 +92,47 @@ static lv_obj_t *x_axis_lbls[X_AXIS_LABELS] = {0};
 // Stored Y-range bounds from CloudWatcher data
 static float cw_y_min = FLT_MAX, cw_y_max = -FLT_MAX;
 static bool cw_y_valid = false;
+
+// Custom draw callback: renders Meteoblue forecast as 15-min bars from bottom of chart
+// Uses stored forecast_bar_* arrays, no child objects created (touch-safe)
+static void chart_draw_post_cb(lv_event_t *e)
+{
+    if (forecast_bar_count <= 0) return;
+
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_obj_t *obj = lv_event_get_target(e);
+
+    lv_area_t coords;
+    lv_obj_get_content_coords(obj, &coords);
+
+    int32_t chart_w = lv_area_get_width(&coords);
+    int32_t chart_h = lv_area_get_height(&coords);
+    float px_per_point = (float)chart_w / (float)CHART_POINTS;
+
+    lv_draw_rect_dsc_t rect_dsc;
+    lv_draw_rect_dsc_init(&rect_dsc);
+    rect_dsc.bg_color = lv_color_hex(0x888888);
+    rect_dsc.bg_opa = LV_OPA_40;
+    rect_dsc.border_width = 0;
+    rect_dsc.radius = 0;
+
+    for (int i = 0; i < forecast_bar_count; i++) {
+        int idx = forecast_bar_idx[i];
+        int pct = forecast_bar_pct[i];
+        if (pct <= 0 || idx < 0 || idx >= CHART_POINTS) continue;
+
+        // Bar height: 100% cloud cover = 50% of chart height
+        int32_t bar_h = (int32_t)((pct / 100.0f) * 0.5f * chart_h);
+
+        int32_t x1 = coords.x1 + (int32_t)(idx * px_per_point);
+        int32_t x2 = coords.x1 + (int32_t)((idx + 1) * px_per_point);
+        int32_t y2 = coords.y2;
+        int32_t y1 = y2 - bar_h;
+
+        lv_area_t bar_area = {x1, y1, x2, y2};
+        lv_draw_rect(layer, &rect_dsc, &bar_area);
+    }
+}
 
 // Update the chart Y-range and axis labels based on CloudWatcher data only
 // (forecast bars use their own 0-100% scale, independent of temp Y-axis)
@@ -301,7 +347,8 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     lv_obj_set_style_border_color(chart, lv_color_hex(0x1f3050), 0);
     lv_obj_set_style_radius(chart, 8, 0);
     lv_obj_set_style_line_color(chart, lv_color_hex(0x1a2a3a), LV_PART_MAIN);
-    lv_chart_set_div_line_count(chart, Y_AXIS_LABELS - 1, 6);
+    // Horizontal: match Y-axis labels, Vertical: 23 lines = hourly grid for 24h window
+    lv_chart_set_div_line_count(chart, Y_AXIS_LABELS - 1, 23);
 
     // Sky temp series (bright green)
     ser_sky = lv_chart_add_series(chart, COLOR_SKY_LINE, LV_CHART_AXIS_PRIMARY_Y);
@@ -309,12 +356,12 @@ lv_obj_t *ui_home_create(lv_obj_t *parent)
     // Ambient temp series (red)
     ser_amb = lv_chart_add_series(chart, COLOR_AMB_LINE, LV_CHART_AXIS_PRIMARY_Y);
 
-    // Meteoblue cloud cover forecast (grey, plotted in future half of chart)
-    ser_cloud = lv_chart_add_series(chart, lv_color_hex(0x888888), LV_CHART_AXIS_PRIMARY_Y);
-
     // Hide point markers for clean lines
     lv_obj_set_style_size(chart, 0, 0, LV_PART_INDICATOR);
     lv_obj_set_style_line_width(chart, 2, LV_PART_ITEMS);
+
+    // Custom draw callback for Meteoblue forecast bars (drawn after chart content)
+    lv_obj_add_event_cb(chart, chart_draw_post_cb, LV_EVENT_DRAW_POST, NULL);
 
     // Chart non-interactive: touches pass through to parent screen for gesture detection
     lv_obj_clear_flag(chart, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -560,49 +607,35 @@ void ui_home_update_graph(const cw_graph_data_t graphs[CW_GRAPH_SERIES_COUNT])
 
 void ui_home_update_forecast(const mb_forecast_data_t *forecast)
 {
-    if (!chart || !ser_cloud) return;
+    if (!chart) return;
 
-    // Clear the cloud series (all points = NONE)
-    for (int i = 0; i < CHART_POINTS; i++) {
-        lv_chart_set_value_by_id(chart, ser_cloud, i, LV_CHART_POINT_NONE);
+    forecast_bar_count = 0;
+
+    if (!forecast || !forecast->valid || forecast->count < 1) {
+        lv_obj_invalidate(chart);
+        return;
     }
 
-    if (!forecast || !forecast->valid || forecast->count < 1) return;
-
-    // Get current chart Y-range for mapping cloud % to temperature scale
-    // 0% cloud = chart minimum, 100% cloud = chart maximum
-    float range_min, range_max;
-    if (cw_y_valid) {
-        range_min = floorf((cw_y_min - 2.0f) / 5.0f) * 5.0f;
-        range_max = ceilf((cw_y_max + 2.0f) / 5.0f) * 5.0f;
-        if (range_max - range_min < 10.0f) range_max = range_min + 10.0f;
-    } else {
-        range_min = -30.0f;
-        range_max = 30.0f;
-    }
-
-    // Map forecast to full 24h window: -12h (index 0) to +12h (index CHART_POINTS-1)
+    // Map forecast timestamps to chart point indices
     time_t now = time(NULL);
     time_t window_start = now - (time_t)(HALF_WINDOW_MIN * 60);
     float total_secs = HALF_WINDOW_MIN * 60.0f * 2.0f;  // 24h in seconds
     float secs_per_point = total_secs / (float)CHART_POINTS;
 
-    int filled = 0;
-    for (int i = 0; i < forecast->count; i++) {
+    for (int i = 0; i < forecast->count && forecast_bar_count < FORECAST_MAX_BARS; i++) {
         float offset_secs = (float)(forecast->timestamps[i] - window_start);
         if (offset_secs < 0 || offset_secs >= total_secs) continue;
 
         int idx = (int)(offset_secs / secs_per_point);
         if (idx < 0 || idx >= CHART_POINTS) continue;
 
-        // Map cloud cover: 0% = range_min, 100% = range_max
-        float cloud_val = range_min + (forecast->cloud_cover_pct[i] / 100.0f) * (range_max - range_min);
-        lv_chart_set_value_by_id(chart, ser_cloud, idx, (int32_t)(cloud_val * 10.0f));
-        filled++;
+        forecast_bar_idx[forecast_bar_count] = idx;
+        forecast_bar_pct[forecast_bar_count] = forecast->cloud_cover_pct[i];
+        forecast_bar_count++;
     }
 
-    lv_chart_refresh(chart);
-    ESP_LOGI(TAG, "Forecast line: %d points from %d entries", filled, forecast->count);
+    lv_obj_invalidate(chart);
+    ESP_LOGI(TAG, "Forecast bars: %d bars from %d entries", forecast_bar_count, forecast->count);
 }
 
 lv_obj_t *ui_home_get_chart(void)
